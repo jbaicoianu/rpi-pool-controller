@@ -11,7 +11,105 @@
 
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const { Gpio } = require('pigpio');
+
+// ---- Configuration Classes ----
+class EquipmentState {
+  constructor(pump = 'off', pumpSpeed = 'low', inflowValve = 'pool', outflowValve = 'pool', heater = 'off') {
+    this.pump = pump;
+    this.pumpSpeed = pumpSpeed;
+    this.inflowValve = inflowValve;
+    this.outflowValve = outflowValve;
+    this.heater = heater;
+  }
+  
+  static fromConfig(config) {
+    return new EquipmentState(
+      config.pump,
+      config.pumpSpeed,
+      config.inflowValve,
+      config.outflowValve,
+      config.heater
+    );
+  }
+  
+  copy() {
+    return new EquipmentState(this.pump, this.pumpSpeed, this.inflowValve, this.outflowValve, this.heater);
+  }
+}
+
+class ModeConfig {
+  constructor(key, name, description, order, equipment, color) {
+    this.key = key;
+    this.name = name;
+    this.description = description;
+    this.order = order;
+    this.equipment = EquipmentState.fromConfig(equipment);
+    this.color = color;
+  }
+  
+  static loadFromDirectory(modesDir) {
+    const modes = new Map();
+    const files = fs.readdirSync(modesDir).filter(f => f.endsWith('.json'));
+    
+    for (const file of files) {
+      const modePath = path.join(modesDir, file);
+      const config = JSON.parse(fs.readFileSync(modePath, 'utf8'));
+      const key = path.basename(file, '.json');
+      
+      modes.set(key, new ModeConfig(
+        key,
+        config.name,
+        config.description,
+        config.order || 999,
+        config.equipment,
+        config.color
+      ));
+    }
+    
+    return modes;
+  }
+  
+  static getSortedModes(modes) {
+    return Array.from(modes.values()).sort((a, b) => a.order - b.order);
+  }
+}
+
+class PoolController {
+  constructor(pins, gpio) {
+    this.pins = pins;
+    this.gpio = gpio;
+    this.currentState = new EquipmentState();
+  }
+  
+  applyEquipmentState(equipmentState) {
+    this.currentState = equipmentState.copy();
+    
+    // Apply pump control
+    this.gpio[this.pins.PUMP].digitalWrite(equipmentState.pump === 'on' ? 1 : 0);
+    this.gpio[this.pins.PUMP_TURBO].digitalWrite(
+      (equipmentState.pump === 'on' && equipmentState.pumpSpeed === 'high') ? 1 : 0
+    );
+    
+    // Apply valve control (spa=1, pool=0)
+    this.gpio[this.pins.RELAY_INFLOW].digitalWrite(equipmentState.inflowValve === 'spa' ? 1 : 0);
+    this.gpio[this.pins.RELAY_OUTFLOW].digitalWrite(equipmentState.outflowValve === 'spa' ? 1 : 0);
+    
+    // Apply heater control
+    this.gpio[this.pins.HEATER_SPA].digitalWrite(equipmentState.heater === 'on' ? 1 : 0);
+    
+    console.log(`Applied state: pump=${equipmentState.pump}/${equipmentState.pumpSpeed}, valves=${equipmentState.inflowValve}/${equipmentState.outflowValve}, heater=${equipmentState.heater}`);
+  }
+  
+  applyMode(modeConfig) {
+    this.applyEquipmentState(modeConfig.equipment);
+  }
+  
+  getCurrentState() {
+    return this.currentState.copy();
+  }
+}
 
 const app = express();
 
@@ -29,6 +127,18 @@ const PINS = {
 const VALVE_WAIT_MS = 30_000;
 const PORT = process.env.PORT || 8080;
 
+// ---- Load modes and initialize controller ----
+let modes;
+let poolController;
+
+try {
+  modes = ModeConfig.loadFromDirectory(path.join(__dirname, 'modes'));
+  console.log(`Loaded ${modes.size} modes:`, Array.from(modes.values()).map(m => m.name).join(', '));
+} catch (err) {
+  console.error('Failed to load modes:', err);
+  process.exit(1);
+}
+
 // ---- GPIO init (fail-safe LOW) ----
 const gpio = {};
 for (const pin of Object.values(PINS)) {
@@ -37,15 +147,16 @@ for (const pin of Object.values(PINS)) {
   console.log(`GPIO ${pin} initialized -> LOW`);
 }
 
+// Initialize pool controller
+poolController = new PoolController(PINS, gpio);
+
 // ---- Helpers ----
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-const gpioOn  = (...pins) => pins.forEach(p => (gpio[p].digitalWrite(1), console.log(`Pin ${p} -> ON`)));
-const gpioOff = (...pins) => pins.forEach(p => (gpio[p].digitalWrite(0), console.log(`Pin ${p} -> OFF`)));
 
 // ---- Status model ----
 const status = {
-  state: 'off',         // "on" | "off" | "working"
-  target: null,         // "on" | "off" | null
+  mode: 'service',      // current mode key
+  target: null,         // target mode key or null (for transitions)
   busy: false,
   lastError: null,
 };
@@ -64,13 +175,18 @@ function currentValvePercent() {
   const t = Math.max(0, Math.min(1, (Date.now() - valve.startMs) / valve.durationMs));
   return valve.from + (valve.to - valve.from) * t;
 }
+
 function statusPayload() {
   const pct = currentValvePercent(); // float, linear
+  const currentMode = modes.get(status.mode);
+  const targetMode = status.target ? modes.get(status.target) : null;
+  
   return {
     ok: true,
-    state: status.state,
+    mode: status.mode,
     busy: status.busy,
     target: status.target,
+    equipment: poolController.getCurrentState(),
     serverNow: Date.now(),
     valveWaitMs: VALVE_WAIT_MS,
     valve: {
@@ -81,109 +197,212 @@ function statusPayload() {
       startMs: valve.startMs,
       durationMs: valve.durationMs,
     },
+    modes: ModeConfig.getSortedModes(modes).map(m => ({
+      key: m.key,
+      name: m.name,
+      description: m.description,
+      color: m.color,
+      order: m.order
+    })),
     lastError: status.lastError,
   };
 }
 
-// ---- Non-blocking actions ----
-async function doSpaOn() {
+// ---- Mode switching ----
+function getValvePercentForMode(modeKey) {
+  const mode = modes.get(modeKey);
+  if (!mode) return 0;
+  
+  // Calculate valve percentage based on valve positions
+  // spa valves = 100%, pool valves = 0%
+  if (mode.equipment.inflowValve === 'spa' && mode.equipment.outflowValve === 'spa') {
+    return 100;
+  } else {
+    return 0;
+  }
+}
+
+async function switchToMode(modeKey) {
+  const targetMode = modes.get(modeKey);
+  if (!targetMode) {
+    throw new Error(`Unknown mode: ${modeKey}`);
+  }
+  
   try {
     status.busy = true;
-    status.state = 'working';
-    status.target = 'on';
-    console.log('Spa ON: begin');
-
-    // Start valve timeline now so all clients can reflect % immediately
-    valve.from = currentValvePercent();
-    valve.to = 100;
-    valve.startMs = Date.now();
-    valve.durationMs = VALVE_WAIT_MS;
-    valve.moving = true;
-
-    console.log('- Switch pump speed to LOW');
-    gpioOff(PINS.PUMP_TURBO);
-
-    console.log('- Turn on pump + heater, open relays');
-    gpioOn(PINS.PUMP, PINS.RELAY_INFLOW, PINS.RELAY_OUTFLOW, PINS.HEATER_SPA);
-
-    console.log('- Waiting for valves to finish…');
-    await sleep(VALVE_WAIT_MS);
-
-    console.log('- Switch pump speed to HIGH');
-    gpioOn(PINS.PUMP_TURBO);
-
-    valve.percent = 100;
-    valve.moving = false;
-
-    status.state = 'on';
-    console.log('Spa ON: complete');
+    status.target = modeKey;
+    console.log(`Switching to mode: ${targetMode.name}`);
+    
+    const currentValvePct = currentValvePercent();
+    const targetValvePct = getValvePercentForMode(modeKey);
+    
+    // Start valve timeline if valve position needs to change
+    if (currentValvePct !== targetValvePct) {
+      valve.from = currentValvePct;
+      valve.to = targetValvePct;
+      valve.startMs = Date.now();
+      valve.durationMs = VALVE_WAIT_MS;
+      valve.moving = true;
+      console.log(`Moving valves from ${currentValvePct}% to ${targetValvePct}%`);
+    }
+    
+    // Apply equipment state immediately (except for final pump speed for spa mode)
+    const equipmentState = targetMode.equipment.copy();
+    if (modeKey === 'spa' && targetValvePct > currentValvePct) {
+      // For spa mode, start with low speed during valve transition
+      equipmentState.pumpSpeed = 'low';
+    }
+    
+    poolController.applyEquipmentState(equipmentState);
+    
+    // Wait for valve transition if needed
+    if (valve.moving) {
+      console.log('Waiting for valve transition...');
+      await sleep(VALVE_WAIT_MS);
+      
+      valve.percent = targetValvePct;
+      valve.moving = false;
+      
+      // Apply final equipment state (e.g., high pump speed for spa)
+      if (modeKey === 'spa') {
+        poolController.applyEquipmentState(targetMode.equipment);
+      }
+    }
+    
+    status.mode = modeKey;
+    console.log(`Mode switch complete: ${targetMode.name}`);
+    
   } catch (e) {
-    console.error('Spa ON error:', e);
+    console.error(`Mode switch error (${modeKey}):`, e);
     status.lastError = String(e);
-    gpioOff(PINS.PUMP, PINS.PUMP_TURBO, PINS.RELAY_INFLOW, PINS.RELAY_OUTFLOW, PINS.HEATER_SPA);
-    valve.percent = 0;
-    valve.moving = false;
-    status.state = 'off';
+    
+    // On error, try to go to safe service mode
+    const serviceMode = modes.get('service');
+    if (serviceMode && modeKey !== 'service') {
+      poolController.applyEquipmentState(serviceMode.equipment);
+      status.mode = 'service';
+      valve.percent = 0;
+      valve.moving = false;
+    }
   } finally {
     status.busy = false;
     status.target = null;
   }
 }
 
-async function doSpaOff() {
-  try {
-    status.busy = true;
-    status.state = 'working';
-    status.target = 'off';
-    console.log('Spa OFF: begin');
+// ---- Routes ----
+app.use(express.json());
 
-    // Start valve timeline back to 0%
-    valve.from = currentValvePercent();
-    valve.to = 0;
-    valve.startMs = Date.now();
-    valve.durationMs = VALVE_WAIT_MS;
-    valve.moving = true;
-
-    console.log('- Turn off pump + heater, close relays');
-    gpioOff(PINS.PUMP, PINS.PUMP_TURBO, PINS.RELAY_INFLOW, PINS.RELAY_OUTFLOW, PINS.HEATER_SPA);
-
-    console.log('- Waiting for valves to swing back…');
-    await sleep(VALVE_WAIT_MS);
-
-    valve.percent = 0;
-    valve.moving = false
-
-    status.state = 'off';
-    console.log('Spa OFF: complete');
-  } catch (e) {
-    console.error('Spa OFF error:', e);
-    status.lastError = String(e);
-  } finally {
-    status.busy = false;
-    status.target = null;
+// Switch to a specific mode
+app.get('/mode/:modeKey', async (req, res) => {
+  const { modeKey } = req.params;
+  
+  // Validate mode exists
+  if (!modes.has(modeKey)) {
+    return res.status(404).json({ ok: false, message: `Unknown mode: ${modeKey}` });
   }
-}
-
-// ---- Routes (GET) ----
-app.get('/spa/on', (req, res) => {
-  if (!status.busy && status.state === 'on') return res.json(statusPayload());
-  if (status.busy && status.target === 'on') return res.json(statusPayload());
-  if (status.busy) return res.status(409).json({ ok: false, busy: true, message: 'Busy with another operation' });
-  doSpaOn();
+  
+  // Check if already in this mode and not busy
+  if (!status.busy && status.mode === modeKey) {
+    return res.json(statusPayload());
+  }
+  
+  // Check if already switching to this mode
+  if (status.busy && status.target === modeKey) {
+    return res.json(statusPayload());
+  }
+  
+  // Check if busy with another operation
+  if (status.busy) {
+    return res.status(409).json({ ok: false, busy: true, message: 'Busy with another operation' });
+  }
+  
+  // Start the mode switch (non-blocking)
+  switchToMode(modeKey);
   res.json(statusPayload());
 });
 
-app.get('/spa/off', (req, res) => {
-  if (!status.busy && status.state === 'off') return res.json(statusPayload());
-  if (status.busy && status.target === 'off') return res.json(statusPayload());
-  if (status.busy) return res.status(409).json({ ok: false, busy: true, message: 'Busy with another operation' });
-  doSpaOff();
+// Get available modes
+app.get('/modes', (req, res) => {
+  const modesList = ModeConfig.getSortedModes(modes).map(m => ({
+    key: m.key,
+    name: m.name,
+    description: m.description,
+    color: m.color,
+    order: m.order
+  }));
+  res.json({ ok: true, modes: modesList });
+});
+
+// Manual equipment control (switches to service mode)
+app.post('/equipment/:type', (req, res) => {
+  const { type } = req.params;
+  const { state } = req.body;
+  
+  // Get current equipment state
+  const currentState = poolController.getCurrentState();
+  
+  // Update specific equipment
+  switch (type) {
+    case 'pump':
+      if (state === 'on' || state === 'off') {
+        currentState.pump = state;
+      }
+      break;
+    case 'pumpSpeed':
+      if (state === 'low' || state === 'high') {
+        currentState.pumpSpeed = state;
+      }
+      break;
+    case 'inflowValve':
+      if (state === 'pool' || state === 'spa') {
+        currentState.inflowValve = state;
+      }
+      break;
+    case 'outflowValve':
+      if (state === 'pool' || state === 'spa') {
+        currentState.outflowValve = state;
+      }
+      break;
+    case 'heater':
+      if (state === 'on' || state === 'off') {
+        currentState.heater = state;
+      }
+      break;
+    default:
+      return res.status(400).json({ ok: false, message: `Unknown equipment type: ${type}` });
+  }
+  
+  // Apply the updated state
+  poolController.applyEquipmentState(currentState);
+  
+  // Switch to service mode
+  status.mode = 'service';
+  
   res.json(statusPayload());
 });
-app.get('/pump/quickclean', (req, res) => {
-  gpioOn(PINS.PUMP, PINS.PUMP_TURBO);
-  gpioOff(PINS.RELAY_INFLOW, PINS.RELAY_OUTFLOW, PINS.HEATER_SPA);
-  res.json(statusPayload());
+
+// Legacy spa endpoints
+app.get('/spa/on', async (req, res) => {
+  req.params = { modeKey: 'spa' };
+  const handler = app._router.stack.find(layer => 
+    layer.route && layer.route.path === '/mode/:modeKey'
+  );
+  if (handler) {
+    return handler.route.stack[0].handle(req, res);
+  }
+  res.status(500).json({ ok: false, message: 'Route handler not found' });
+});
+
+app.get('/spa/off', async (req, res) => {
+  req.params = { modeKey: 'auto' };
+  const handler = app._router.stack.find(layer => 
+    layer.route && layer.route.path === '/mode/:modeKey'
+  );
+  if (handler) {
+    return handler.route.stack[0].handle(req, res);
+  }
+  res.status(500).json({ ok: false, message: 'Route handler not found' });
 });
 
 app.get('/status', (_req, res) => res.json(statusPayload()));

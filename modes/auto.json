@@ -1,0 +1,13 @@
+{
+  "name": "Auto",
+  "description": "Normal pool circulation",
+  "order": 1,
+  "equipment": {
+    "pump": "on",
+    "pumpSpeed": "low",
+    "inflowValve": "pool",
+    "outflowValve": "pool",
+    "heater": "off"
+  },
+  "color": "#2bd576"
+}

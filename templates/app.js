@@ -36,18 +36,20 @@ function adoptDiagramStyles(shadowRoot) {
   }
 }
 
-// ===== Slider + diagram refs =====
-const slider = document.getElementById('slider');
-const sr = document.getElementById('sr');
+// ===== Component refs =====
 const diagram = document.getElementById('diagram');
+const modeSelector = document.getElementById('mode-selector');
 
-function setSliderClass(cls){
-  slider.classList.remove('on','off','working');
-  slider.classList.add(cls);
-  slider.setAttribute('aria-checked', String(cls === 'on'));
-  sr.textContent = cls === 'on' ? 'Spa ON' : (cls === 'off' ? 'Spa OFF' : 'Spa transitioning');
+// Global state
+let availableModes = [];
+let currentMode = 'service';
+
+// Status update functions for mode selector
+function updateModeSelector(status) {
+  if (modeSelector && typeof modeSelector.updateStatus === 'function') {
+    modeSelector.updateStatus(status);
+  }
 }
-function setSliderDisabled(disabled){ slider.setAttribute('aria-disabled', String(disabled)); }
 
 async function fetchStatus(){
   const r = await fetch('/status', { cache: 'no-store' });
@@ -85,31 +87,25 @@ function setTimelineFromStatus(j) {
   };
 }
 
-// ===== Apply server status to non-valve visuals + slider =====
+// ===== Apply server status to components =====
 async function applyStatus(j){
   setTimelineFromStatus(j);
-
-  if (j.state === 'on') {
-    diagram.setPump('on', 'high');
-    diagram.setHeater(true);
-    setSliderClass('on');
-    setSliderDisabled(false);
-  } else if (j.state === 'off') {
-    diagram.setPump('off', 'off');
-    diagram.setHeater(false);
-    setSliderClass('off');
-    setSliderDisabled(false);
-  } else { // working
-    if (j.target === 'on') {
-      diagram.setPump('on', 'low');
-      diagram.setHeater(true);
-    } else {
-      diagram.setPump('off', 'off');
-      diagram.setHeater(false);
-    }
-    setSliderClass('working');
-    setSliderDisabled(true);
+  
+  // Update global state
+  if (j.modes) {
+    availableModes = j.modes;
   }
+  currentMode = j.mode || 'service';
+  
+  // Update diagram based on equipment state
+  if (j.equipment && diagram) {
+    const eq = j.equipment;
+    diagram.setPump(eq.pump, eq.pumpSpeed);
+    diagram.setHeater(eq.heater === 'on');
+  }
+  
+  // Update mode selector
+  updateModeSelector(j);
 }
 
 // ===== Continuous polling so multiple clients stay in sync =====
@@ -118,7 +114,7 @@ async function pollLoop(intervalMs = 1000, idleMs = 3000){
   try {
     const j = await fetchStatus();
     await applyStatus(j);
-    const next = (j.busy || j.state === 'working') ? intervalMs : idleMs;
+    const next = j.busy ? intervalMs : idleMs;
     pollTimer = setTimeout(() => pollLoop(intervalMs, idleMs), next);
   } catch {
     pollTimer = setTimeout(() => pollLoop(intervalMs, idleMs), 4000);
@@ -143,42 +139,10 @@ function startValveRaf() {
   requestAnimationFrame(tick);
 }
 
-// ===== User toggles slider =====
-slider.addEventListener('click', async () => {
-  if (slider.getAttribute('aria-disabled') === 'true') return;
-  const goingOn = !slider.classList.contains('on');
-
-  setSliderClass('working');
-  setSliderDisabled(true);
-
-  // Provisional local timeline (will be reconciled by next /status)
-  const clientNow = Date.now();
-  const currentPct = (valveTimeline && valveTimeline.moving)
-    ? (() => {
-        const nowServer = clientNow - clockSkewMs;
-        const t = Math.max(0, Math.min(1, (nowServer - valveTimeline.startMs) / valveTimeline.durationMs));
-        return valveTimeline.from + (valveTimeline.to - valveTimeline.from) * t;
-      })()
-    : (valvePercentIdle || 0);
-
-  valveTimeline = {
-    moving: true,
-    from: currentPct,
-    to: goingOn ? 100 : 0,
-    startMs: clientNow - clockSkewMs,   // approx server start time
-    durationMs: VALVE_MS,
-  };
-
-  try {
-    const r = await fetch(goingOn ? '/spa/on' : '/spa/off', { method:'GET', cache:'no-store' });
-    if (!r.ok && r.status !== 409) throw new Error('HTTP ' + r.status);
-  } catch {
-    // Let polling reconcile on error
-  }
-});
+// Mode switching is now handled by the pool-mode-selector component
 
 // ===== Custom elements =====
-class SpaDiagram extends HTMLElement{
+class PoolDiagram extends HTMLElement{
   constructor(){
     super();
     this.attachShadow({mode:'open'});
@@ -225,7 +189,209 @@ class SpaDiagram extends HTMLElement{
     }
   }
 }
-customElements.define('spa-diagram', SpaDiagram);
+customElements.define('pool-diagram', PoolDiagram);
+
+// ===== Pool Mode Selector Component =====
+class PoolModeSelector extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: 'open' });
+    this.modes = [];
+    this.currentMode = 'service';
+    this.busy = false;
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host {
+          display: block;
+          margin: 18px 0;
+        }
+        .mode-slider {
+          --w: 420px;
+          --h: 88px;
+          --pad: 6px;
+          width: var(--w);
+          height: var(--h);
+          position: relative;
+          border-radius: 999px;
+          border: 1px solid rgba(255,255,255,.10);
+          background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(0,0,0,.15));
+          box-shadow: inset 0 2px 8px rgba(0,0,0,.35), 0 12px 30px rgba(0,0,0,.25);
+          margin: 0 auto;
+        }
+        .track {
+          position: absolute;
+          inset: var(--pad);
+          border-radius: 999px;
+          background: #0f1427;
+          overflow: hidden;
+          transition: box-shadow .25s ease;
+          box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+        }
+        .tint {
+          position: absolute;
+          inset: 0;
+          border-radius: 999px;
+          opacity: .22;
+          transition: background .3s ease;
+        }
+        .knob {
+          position: absolute;
+          top: 50%;
+          width: calc(var(--h) - (var(--pad) * 2));
+          height: calc(var(--h) - (var(--pad) * 2));
+          border-radius: 999px;
+          transform: translate(var(--pad), -50%);
+          transition: transform .35s cubic-bezier(.2,.8,.2,1), box-shadow .2s ease;
+          background: radial-gradient(circle at 30% 30%, #ffffff, #dfe7fb 32%, #b8c6e8 60%, #93a5d6);
+          box-shadow: 0 10px 20px rgba(0,0,0,.45), inset 0 2px 5px rgba(255,255,255,.6);
+          cursor: pointer;
+        }
+        .labels {
+          position: absolute;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          font-weight: 700;
+          letter-spacing: .5px;
+          font-size: .85rem;
+          user-select: none;
+          padding: 0 20px;
+          justify-content: space-between;
+        }
+        .label {
+          opacity: .7;
+          transition: opacity .2s ease;
+          cursor: pointer;
+          padding: 8px 12px;
+          border-radius: 8px;
+          transition: all .2s ease;
+        }
+        .label:hover {
+          opacity: 1;
+          background: rgba(255,255,255,.05);
+        }
+        .label.active {
+          opacity: 1;
+          font-weight: 800;
+        }
+        .sr {
+          position: absolute;
+          left: -9999px;
+        }
+        .mode-slider.disabled {
+          filter: grayscale(.25);
+          opacity: .82;
+          pointer-events: none;
+        }
+      </style>
+      <div class="mode-slider" id="slider">
+        <span class="sr" id="sr">Loading modes...</span>
+        <div class="track"><div class="tint" id="tint"></div></div>
+        <div class="knob" id="knob"></div>
+        <div class="labels" id="labels"></div>
+      </div>
+    `;
+    
+    this.$slider = this.shadowRoot.getElementById('slider');
+    this.$sr = this.shadowRoot.getElementById('sr');
+    this.$tint = this.shadowRoot.getElementById('tint');
+    this.$knob = this.shadowRoot.getElementById('knob');
+    this.$labels = this.shadowRoot.getElementById('labels');
+  }
+  
+  setModes(modes) {
+    this.modes = modes;
+    this.renderLabels();
+  }
+  
+  renderLabels() {
+    this.$labels.innerHTML = '';
+    this.modes.forEach((mode, index) => {
+      const label = document.createElement('div');
+      label.className = 'label';
+      label.textContent = mode.name;
+      label.style.color = mode.color || '#9aa4b2';
+      label.dataset.modeKey = mode.key;
+      label.addEventListener('click', () => this.switchToMode(mode.key));
+      this.$labels.appendChild(label);
+    });
+  }
+  
+  updateStatus(status) {
+    this.currentMode = status.mode;
+    this.busy = status.busy;
+    
+    // Update modes if provided
+    if (status.modes && status.modes.length > 0) {
+      this.setModes(status.modes);
+    }
+    
+    this.updateVisualState();
+  }
+  
+  updateVisualState() {
+    const currentIndex = this.modes.findIndex(m => m.key === this.currentMode);
+    const currentModeObj = this.modes.find(m => m.key === this.currentMode);
+    
+    if (currentIndex >= 0 && this.modes.length > 0) {
+      // Calculate knob position
+      const progress = currentIndex / Math.max(1, this.modes.length - 1);
+      const knobWidth = 76; // approximate knob width
+      const trackWidth = 420 - 12; // slider width minus padding
+      const maxTravel = trackWidth - knobWidth;
+      const position = 6 + (progress * maxTravel); // pad + travel
+      
+      this.$knob.style.transform = `translate(${position}px, -50%)`;
+      
+      // Update tint color
+      if (currentModeObj) {
+        this.$tint.style.background = `linear-gradient(90deg, ${currentModeObj.color}, ${currentModeObj.color}88)`;
+        this.$sr.textContent = `Current mode: ${currentModeObj.name}`;
+      }
+      
+      // Update track glow
+      this.$slider.querySelector('.track').style.boxShadow = 
+        `inset 0 0 0 1px ${currentModeObj?.color}35, inset 0 0 18px ${currentModeObj?.color}22`;
+    }
+    
+    // Update label active state
+    this.$labels.querySelectorAll('.label').forEach((label, index) => {
+      label.classList.toggle('active', this.modes[index]?.key === this.currentMode);
+    });
+    
+    // Update disabled state
+    this.$slider.classList.toggle('disabled', this.busy);
+    
+    // Update working animation
+    if (this.busy) {
+      this.$tint.style.animation = 'breathe 1.4s ease-in-out infinite';
+    } else {
+      this.$tint.style.animation = 'none';
+    }
+  }
+  
+  async switchToMode(modeKey) {
+    if (this.busy || modeKey === this.currentMode) return;
+    
+    try {
+      const response = await fetch(`/mode/${modeKey}`, { 
+        method: 'GET', 
+        cache: 'no-store' 
+      });
+      
+      if (!response.ok && response.status !== 409) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      
+      // Let polling handle the UI update
+    } catch (error) {
+      console.error('Failed to switch mode:', error);
+      // Let polling reconcile on error
+    }
+  }
+}
+
+customElements.define('pool-mode-selector', PoolModeSelector);
 
 // -- <spa-equipment-valve> (now supports configurable base angle) -------------
 class SpaValve extends HTMLElement{

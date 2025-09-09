@@ -1,0 +1,13 @@
+{
+  "name": "Turbo Clean",
+  "description": "High-speed pool cleaning",
+  "order": 3,
+  "equipment": {
+    "pump": "on",
+    "pumpSpeed": "high",
+    "inflowValve": "pool",
+    "outflowValve": "pool",
+    "heater": "off"
+  },
+  "color": "#f5d15f"
+}

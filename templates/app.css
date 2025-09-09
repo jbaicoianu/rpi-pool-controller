@@ -41,6 +41,10 @@ h1{margin:0 0 8px 0;font-size:1.5rem;} .sub{margin:0 0 18px 0;color:var(--muted)
 .slider[aria-disabled="true"]{filter:grayscale(.25);opacity:.82;pointer-events:none}
 .sr{position:absolute;left:-9999px}
 
-/* Diagram host spacing */
-spa-diagram{display:block;margin:6px 0 10px 0}
+/* Component host spacing */
+pool-diagram{display:block;margin:6px 0 10px 0}
+pool-mode-selector{display:block;margin:18px 0}
+
+/* Animation for mode selector breathing effect */
+@keyframes breathe{0%{opacity:.18;filter:brightness(95%)}50%{opacity:.40;filter:brightness(110%)}100%{opacity:.18;filter:brightness(95%)}}
 

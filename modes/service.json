@@ -1,0 +1,13 @@
+{
+  "name": "Service",
+  "description": "Manual equipment control mode",
+  "order": 4,
+  "equipment": {
+    "pump": "off",
+    "pumpSpeed": "low",
+    "inflowValve": "pool",
+    "outflowValve": "pool",
+    "heater": "off"
+  },
+  "color": "#9aa4b2"
+}

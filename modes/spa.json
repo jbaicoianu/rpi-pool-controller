@@ -1,0 +1,13 @@
+{
+  "name": "Spa",
+  "description": "Spa mode with heating",
+  "order": 2,
+  "equipment": {
+    "pump": "on",
+    "pumpSpeed": "high",
+    "inflowValve": "spa",
+    "outflowValve": "spa",
+    "heater": "on"
+  },
+  "color": "#e04f4f"
+}
