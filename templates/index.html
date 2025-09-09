@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Spa Controller</title>
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Spa Controller</h1>
+      <p class="sub">Toggle spa mode. The valve transition takes ~30s.</p>
+
+      <!-- System diagram -->
+      <spa-diagram id="diagram"></spa-diagram>
+
+      <!-- Big toggle -->
+      <div class="slider-wrap">
+        <button id="slider" class="slider off" role="switch"
+                aria-checked="false" aria-disabled="true" aria-label="Spa power">
+          <span class="sr" id="sr">Spa OFF</span>
+          <div class="track"><div class="tint"></div></div>
+          <div class="knob"></div>
+          <div class="labels"><div class="left">OFF</div><div class="right">ON</div></div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
+
