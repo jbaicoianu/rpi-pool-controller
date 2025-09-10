@@ -152,19 +152,19 @@ class PoolDiagram extends HTMLElement{
         'suction pump'
         'return  heater'">
         <div class="col" style="grid-area:suction">
-          <spa-equipment-valve id="suction" label="Suction"></spa-equipment-valve>
+          <pool-equipment-valve id="suction" label="Suction"></pool-equipment-valve>
           <div class="label">Suction Valve</div>
         </div>
         <div class="col" style="grid-area:pump">
-          <spa-equipment-pump id="pump"></spa-equipment-pump>
+          <pool-equipment-pump id="pump"></pool-equipment-pump>
           <div class="label">Pump</div>
         </div>
         <div class="col" style="grid-area:heater">
-          <spa-equipment-heater id="heater"></spa-equipment-heater>
+          <pool-equipment-heater id="heater"></pool-equipment-heater>
           <div class="label">Heater</div>
         </div>
         <div class="col" style="grid-area:return">
-          <spa-equipment-valve id="return" label="Return"></spa-equipment-valve>
+          <pool-equipment-valve id="return" label="Return"></pool-equipment-valve>
           <div class="label">Return Valve</div>
         </div>
       </div>
@@ -531,8 +531,8 @@ class PoolModeSelector extends HTMLElement {
 
 customElements.define('pool-mode-selector', PoolModeSelector);
 
-// -- <spa-equipment-valve> (now supports configurable base angle) -------------
-class SpaValve extends HTMLElement{
+// -- <pool-equipment-valve> (now supports configurable base angle) -------------
+class PoolValve extends HTMLElement{
   static get observedAttributes(){ return ['label','value','base-angle']; }
   constructor(){
     super();
@@ -587,10 +587,10 @@ class SpaValve extends HTMLElement{
   }
   setWorking(on){ this.classList.toggle('working', !!on); }
 }
-customElements.define('spa-equipment-valve', SpaValve);
+customElements.define('pool-equipment-valve', PoolValve);
 
-// -- <spa-equipment-pump> -----------------------------------------------------
-class SpaPump extends HTMLElement{
+// -- <pool-equipment-pump> -----------------------------------------------------
+class PoolPump extends HTMLElement{
   constructor(){
     super();
     this.attachShadow({mode:'open'});
@@ -632,10 +632,10 @@ class SpaPump extends HTMLElement{
     }
   }
 }
-customElements.define('spa-equipment-pump', SpaPump);
+customElements.define('pool-equipment-pump', PoolPump);
 
-// -- <spa-equipment-heater> ---------------------------------------------------
-class SpaHeater extends HTMLElement{
+// -- <pool-equipment-heater> ---------------------------------------------------
+class PoolHeater extends HTMLElement{
   constructor(){
     super();
     this.attachShadow({mode:'open'});
@@ -645,7 +645,7 @@ class SpaHeater extends HTMLElement{
   }
   setOn(on){ this.$box.classList.toggle('on', !!on); }
 }
-customElements.define('spa-equipment-heater', SpaHeater);
+customElements.define('pool-equipment-heater', PoolHeater);
 
 // ===== Start: initial fetch, RAF, and polling =====
 (async () => {
