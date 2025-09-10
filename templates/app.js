@@ -199,6 +199,9 @@ class PoolModeSelector extends HTMLElement {
     this.modes = [];
     this.currentMode = 'service';
     this.busy = false;
+    this.isDragging = false;
+    this.dragStartX = 0;
+    this.knobStartX = 0;
     this.shadowRoot.innerHTML = `
       <style>
         :host {
@@ -283,6 +286,17 @@ class PoolModeSelector extends HTMLElement {
           opacity: .82;
           pointer-events: none;
         }
+        .mode-slider.working .tint {
+          animation: breathe 1.4s ease-in-out infinite;
+        }
+        .mode-slider.working .track {
+          box-shadow: inset 0 0 0 1px rgba(245,209,95,.45), inset 0 0 20px rgba(245,209,95,.28);
+        }
+        @keyframes breathe {
+          0% { opacity: .18; filter: brightness(95%); }
+          50% { opacity: .40; filter: brightness(110%); }
+          100% { opacity: .18; filter: brightness(95%); }
+        }
       </style>
       <div class="mode-slider" id="slider">
         <span class="sr" id="sr">Loading modes...</span>
@@ -297,6 +311,97 @@ class PoolModeSelector extends HTMLElement {
     this.$tint = this.shadowRoot.getElementById('tint');
     this.$knob = this.shadowRoot.getElementById('knob');
     this.$labels = this.shadowRoot.getElementById('labels');
+    
+    // Add drag/touch event listeners
+    this.setupDragHandlers();
+  }
+  
+  setupDragHandlers() {
+    // Mouse events
+    this.$knob.addEventListener('mousedown', (e) => this.startDrag(e));
+    document.addEventListener('mousemove', (e) => this.onDrag(e));
+    document.addEventListener('mouseup', () => this.endDrag());
+    
+    // Touch events
+    this.$knob.addEventListener('touchstart', (e) => this.startDrag(e), { passive: false });
+    document.addEventListener('touchmove', (e) => this.onDrag(e), { passive: false });
+    document.addEventListener('touchend', () => this.endDrag());
+  }
+  
+  startDrag(e) {
+    if (this.busy) return;
+    
+    e.preventDefault();
+    this.isDragging = true;
+    
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    this.dragStartX = clientX;
+    
+    // Get current knob position
+    const knobRect = this.$knob.getBoundingClientRect();
+    this.knobStartX = knobRect.left;
+    
+    this.$knob.style.transition = 'none'; // Disable transition during drag
+    this.$slider.style.cursor = 'grabbing';
+  }
+  
+  onDrag(e) {
+    if (!this.isDragging || this.busy) return;
+    
+    e.preventDefault();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const deltaX = clientX - this.dragStartX;
+    
+    // Calculate new position
+    const sliderRect = this.$slider.getBoundingClientRect();
+    const knobWidth = 76;
+    const trackWidth = sliderRect.width - 12; // slider width minus padding
+    const maxTravel = trackWidth - knobWidth;
+    
+    let newX = this.knobStartX - sliderRect.left + deltaX;
+    newX = Math.max(6, Math.min(6 + maxTravel, newX)); // Clamp to valid range
+    
+    this.$knob.style.transform = `translate(${newX}px, -50%)`;
+    
+    // Update visual feedback based on position
+    const progress = (newX - 6) / maxTravel;
+    const targetModeIndex = Math.round(progress * (this.modes.length - 1));
+    const targetMode = this.modes[targetModeIndex];
+    
+    if (targetMode) {
+      this.$tint.style.background = `linear-gradient(90deg, ${targetMode.color}, ${targetMode.color}88)`;
+      this.$sr.textContent = `Dragging to: ${targetMode.name}`;
+    }
+  }
+  
+  endDrag() {
+    if (!this.isDragging) return;
+    
+    this.isDragging = false;
+    this.$knob.style.transition = 'transform .35s cubic-bezier(.2,.8,.2,1), box-shadow .2s ease';
+    this.$slider.style.cursor = '';
+    
+    if (this.busy) return;
+    
+    // Calculate which mode we're closest to
+    const knobRect = this.$knob.getBoundingClientRect();
+    const sliderRect = this.$slider.getBoundingClientRect();
+    const knobCenter = knobRect.left + knobRect.width / 2 - sliderRect.left;
+    
+    const knobWidth = 76;
+    const trackWidth = sliderRect.width - 12;
+    const maxTravel = trackWidth - knobWidth;
+    const progress = Math.max(0, Math.min(1, (knobCenter - 6 - knobWidth/2) / maxTravel));
+    
+    const targetModeIndex = Math.round(progress * (this.modes.length - 1));
+    const targetMode = this.modes[targetModeIndex];
+    
+    if (targetMode && targetMode.key !== this.currentMode) {
+      this.switchToMode(targetMode.key);
+    } else {
+      // Snap back to current position
+      this.updateVisualState();
+    }
   }
   
   setModes(modes) {
@@ -318,12 +423,20 @@ class PoolModeSelector extends HTMLElement {
   }
   
   updateStatus(status) {
+    const prevMode = this.currentMode;
+    const prevBusy = this.busy;
+    
     this.currentMode = status.mode;
     this.busy = status.busy;
     
     // Update modes if provided
     if (status.modes && status.modes.length > 0) {
       this.setModes(status.modes);
+    }
+    
+    // If we just finished switching modes, ensure we're in the right visual state
+    if (prevBusy && !this.busy) {
+      this.$slider.classList.remove('working');
     }
     
     this.updateVisualState();
@@ -359,19 +472,41 @@ class PoolModeSelector extends HTMLElement {
       label.classList.toggle('active', this.modes[index]?.key === this.currentMode);
     });
     
-    // Update disabled state
+    // Update disabled and working states
     this.$slider.classList.toggle('disabled', this.busy);
-    
-    // Update working animation
-    if (this.busy) {
-      this.$tint.style.animation = 'breathe 1.4s ease-in-out infinite';
-    } else {
-      this.$tint.style.animation = 'none';
-    }
+    this.$slider.classList.toggle('working', this.busy);
   }
   
   async switchToMode(modeKey) {
     if (this.busy || modeKey === this.currentMode) return;
+    
+    // Immediate visual feedback - move to target position and show working state
+    const targetModeIndex = this.modes.findIndex(m => m.key === modeKey);
+    const targetMode = this.modes[targetModeIndex];
+    
+    if (targetModeIndex >= 0 && targetMode) {
+      // Calculate and move to target position immediately
+      const progress = targetModeIndex / Math.max(1, this.modes.length - 1);
+      const knobWidth = 76;
+      const trackWidth = 420 - 12;
+      const maxTravel = trackWidth - knobWidth;
+      const position = 6 + (progress * maxTravel);
+      
+      this.$knob.style.transform = `translate(${position}px, -50%)`;
+      
+      // Update colors for target mode
+      this.$tint.style.background = `linear-gradient(90deg, ${targetMode.color}, ${targetMode.color}88)`;
+      this.$sr.textContent = `Switching to: ${targetMode.name}`;
+      
+      // Show working state
+      this.$slider.classList.add('working');
+      this.busy = true; // Temporarily set busy for visual feedback
+      
+      // Update active label
+      this.$labels.querySelectorAll('.label').forEach((label, index) => {
+        label.classList.toggle('active', index === targetModeIndex);
+      });
+    }
     
     try {
       const response = await fetch(`/mode/${modeKey}`, { 
@@ -383,10 +518,13 @@ class PoolModeSelector extends HTMLElement {
         throw new Error(`HTTP ${response.status}`);
       }
       
-      // Let polling handle the UI update
+      // Let polling handle the final UI update
     } catch (error) {
       console.error('Failed to switch mode:', error);
-      // Let polling reconcile on error
+      // Reset visual state on error
+      this.busy = false;
+      this.$slider.classList.remove('working');
+      this.updateVisualState();
     }
   }
 }
