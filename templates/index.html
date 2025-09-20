@@ -9,6 +9,13 @@
 <body>
   <div class="wrap">
     <div class="card">
+      <div id="simulator-banner" class="simulator-banner hidden">
+        <div class="simulator-content">
+          <span class="simulator-icon">⚠️</span>
+          <span class="simulator-text">SIMULATOR MODE</span>
+          <button id="simulator-toggle" class="simulator-toggle">Exit Simulator</button>
+        </div>
+      </div>
       <h1>Pool Controller</h1>
       <p class="sub">Select pool mode. Valve transitions take ~30s.</p>
 
@@ -17,6 +24,9 @@
 
       <!-- Mode selector -->
       <pool-mode-selector id="mode-selector"></pool-mode-selector>
+      
+      <!-- Relay status panel -->
+      <pool-relay-panel id="relay-panel"></pool-relay-panel>
     </div>
   </div>
 

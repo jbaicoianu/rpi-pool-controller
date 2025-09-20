@@ -77,27 +77,48 @@ class ModeConfig {
 }
 
 class PoolController {
-  constructor(pins, gpio) {
+  constructor(pins, gpio, simulator = false) {
     this.pins = pins;
     this.gpio = gpio;
+    this.simulator = simulator;
     this.currentState = new EquipmentState();
+    this.gpioStates = {};
+    
+    // Initialize GPIO states to 0
+    Object.keys(pins).forEach(pinKey => {
+      this.gpioStates[pinKey] = 0;
+    });
+  }
+  
+  setSimulatorMode(enabled) {
+    this.simulator = enabled;
+    console.log(`Simulator mode: ${enabled ? 'ENABLED' : 'DISABLED'}`);
   }
   
   applyEquipmentState(equipmentState) {
     this.currentState = equipmentState.copy();
     
-    // Apply pump control
-    this.gpio[this.pins.PUMP].digitalWrite(equipmentState.pump === 'on' ? 1 : 0);
-    this.gpio[this.pins.PUMP_TURBO].digitalWrite(
-      (equipmentState.pump === 'on' && equipmentState.pumpSpeed === 'high') ? 1 : 0
-    );
+    // Calculate new GPIO states
+    const newGpioStates = {
+      PUMP: equipmentState.pump === 'on' ? 1 : 0,
+      PUMP_TURBO: (equipmentState.pump === 'on' && equipmentState.pumpSpeed === 'high') ? 1 : 0,
+      RELAY_INFLOW: equipmentState.inflowValve === 'spa' ? 1 : 0,
+      RELAY_OUTFLOW: equipmentState.outflowValve === 'spa' ? 1 : 0,
+      HEATER_SPA: equipmentState.heater === 'on' ? 1 : 0
+    };
     
-    // Apply valve control (spa=1, pool=0)
-    this.gpio[this.pins.RELAY_INFLOW].digitalWrite(equipmentState.inflowValve === 'spa' ? 1 : 0);
-    this.gpio[this.pins.RELAY_OUTFLOW].digitalWrite(equipmentState.outflowValve === 'spa' ? 1 : 0);
+    // Update stored GPIO states
+    this.gpioStates = { ...newGpioStates };
     
-    // Apply heater control
-    this.gpio[this.pins.HEATER_SPA].digitalWrite(equipmentState.heater === 'on' ? 1 : 0);
+    if (this.simulator) {
+      console.log(`[SIMULATOR] Would apply GPIO states:`, newGpioStates);
+      return;
+    }
+    
+    // Apply to actual GPIO pins
+    Object.entries(newGpioStates).forEach(([pinKey, state]) => {
+      this.gpio[this.pins[pinKey]].digitalWrite(state);
+    });
     
     console.log(`Applied state: pump=${equipmentState.pump}/${equipmentState.pumpSpeed}, valves=${equipmentState.inflowValve}/${equipmentState.outflowValve}, heater=${equipmentState.heater}`);
   }
@@ -108,6 +129,10 @@ class PoolController {
   
   getCurrentState() {
     return this.currentState.copy();
+  }
+  
+  getGpioStates() {
+    return { ...this.gpioStates };
   }
 }
 
@@ -127,6 +152,29 @@ const PINS = {
 const VALVE_WAIT_MS = 30_000;
 const PORT = process.env.PORT || 8080;
 
+// ---- Simulator mode ----
+let simulatorMode = process.env.SIMULATOR_MODE === 'true' || false;
+const explicitSimulatorMode = simulatorMode; // Track if user explicitly enabled simulator
+
+if (explicitSimulatorMode) {
+  console.log('🎮 Simulator mode explicitly enabled via SIMULATOR_MODE environment variable');
+} else {
+  console.log('🔍 Checking for GPIO hardware availability...');
+}
+
+// Function to toggle simulator mode
+function toggleSimulatorMode(enabled) {
+  if (!explicitSimulatorMode && !enabled && !gpioHardwareAvailable) {
+    console.log('⚠️  Cannot disable simulator mode: GPIO hardware not available');
+    return false;
+  }
+  
+  simulatorMode = enabled;
+  poolController.setSimulatorMode(enabled);
+  console.log(`Simulator mode toggled: ${enabled ? 'ENABLED' : 'DISABLED'}`);
+  return true;
+}
+
 // ---- Load modes and initialize controller ----
 let modes;
 let poolController;
@@ -139,16 +187,75 @@ try {
   process.exit(1);
 }
 
-// ---- GPIO init (fail-safe LOW) ----
+// ---- GPIO init with hardware detection ----
 const gpio = {};
-for (const pin of Object.values(PINS)) {
-  gpio[pin] = new Gpio(pin, { mode: Gpio.OUTPUT });
-  gpio[pin].digitalWrite(0);
-  console.log(`GPIO ${pin} initialized -> LOW`);
+let gpioHardwareAvailable = false;
+
+// Function to detect GPIO hardware availability
+function detectGpioHardware() {
+  try {
+    // Check if we're on a system that supports GPIO
+    // First check if pigpio module can be loaded properly
+    const { Gpio } = require('pigpio');
+    
+    // Check if we can access the GPIO interface (requires /dev/gpiomem or root)
+    const testGpio = new Gpio(2, { mode: Gpio.INPUT }); // Use a safe pin for testing
+    testGpio.terminate(); // Clean up immediately
+    return true;
+  } catch (error) {
+    console.log('GPIO hardware detection failed:', error.message);
+    
+    // Common errors that indicate no GPIO hardware:
+    // - pigpio not available
+    // - /dev/gpiomem not accessible
+    // - not running on Pi hardware
+    return false;
+  }
+}
+
+// Check for GPIO hardware unless explicitly in simulator mode
+if (!simulatorMode) {
+  gpioHardwareAvailable = detectGpioHardware();
+  
+  if (!gpioHardwareAvailable) {
+    console.log('⚠️  GPIO hardware not detected - automatically enabling simulator mode');
+    simulatorMode = true;
+  }
+}
+
+if (!simulatorMode && gpioHardwareAvailable) {
+  console.log('🔌 Initializing GPIO hardware...');
+  try {
+    for (const pin of Object.values(PINS)) {
+      gpio[pin] = new Gpio(pin, { mode: Gpio.OUTPUT });
+      gpio[pin].digitalWrite(0);
+      console.log(`GPIO ${pin} initialized -> LOW`);
+    }
+    console.log('✅ GPIO hardware initialized successfully');
+  } catch (error) {
+    console.error('❌ GPIO initialization failed:', error.message);
+    console.log('🔄 Falling back to simulator mode...');
+    simulatorMode = true;
+    
+    // Clean up any partially initialized GPIO
+    Object.values(gpio).forEach(pin => {
+      try { pin.constructor.name === 'Gpio' && pin.terminate?.(); } catch {}
+    });
+  }
+}
+
+if (simulatorMode) {
+  // Create mock GPIO objects for simulator mode
+  for (const pin of Object.values(PINS)) {
+    gpio[pin] = {
+      digitalWrite: (value) => console.log(`[SIMULATOR] GPIO ${pin} -> ${value ? 'ON' : 'OFF'}`)
+    };
+  }
+  console.log('🎮 Running in SIMULATOR MODE - GPIO operations will be logged only');
 }
 
 // Initialize pool controller
-poolController = new PoolController(PINS, gpio);
+poolController = new PoolController(PINS, gpio, simulatorMode);
 
 // ---- Helpers ----
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -187,6 +294,7 @@ function statusPayload() {
     busy: status.busy,
     target: status.target,
     equipment: poolController.getCurrentState(),
+    gpio: poolController.getGpioStates(),
     serverNow: Date.now(),
     valveWaitMs: VALVE_WAIT_MS,
     valve: {
@@ -204,6 +312,8 @@ function statusPayload() {
       color: m.color,
       order: m.order
     })),
+    simulator: simulatorMode,
+    gpioHardwareAvailable: gpioHardwareAvailable,
     lastError: status.lastError,
   };
 }
@@ -406,6 +516,31 @@ app.get('/spa/off', async (req, res) => {
 });
 
 app.get('/status', (_req, res) => res.json(statusPayload()));
+
+// Simulator mode control
+app.post('/simulator', (req, res) => {
+  const { enabled } = req.body;
+  
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ ok: false, message: 'enabled field must be boolean' });
+  }
+  
+  const success = toggleSimulatorMode(enabled);
+  if (!success) {
+    return res.status(400).json({ 
+      ok: false, 
+      message: 'Cannot disable simulator mode: GPIO hardware not available',
+      simulator: simulatorMode,
+      gpioHardwareAvailable: gpioHardwareAvailable
+    });
+  }
+  
+  res.json(statusPayload());
+});
+
+app.get('/simulator', (req, res) => {
+  res.json({ ok: true, simulator: simulatorMode });
+});
 
 // ---- Static/template serving ----
 app.use(express.static(path.join(__dirname, 'templates')));

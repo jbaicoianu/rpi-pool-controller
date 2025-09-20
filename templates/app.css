@@ -7,7 +7,7 @@ html,body{height:100%;margin:0;background:radial-gradient(1200px 800px at 20% -1
   font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Noto Sans,Ubuntu,Cantarell,Helvetica,Arial;}
 .wrap{min-height:100%;display:grid;place-items:center;padding:40px 16px;}
 .card{width:min(900px,94vw);background:color-mix(in srgb, var(--card) 88%, black);border:1px solid rgba(255,255,255,.06);
-  border-radius:22px;box-shadow:0 30px 80px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.02);padding:28px;}
+  border-radius:22px;box-shadow:0 30px 80px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.02);padding:28px;position:relative;}
 h1{margin:0 0 8px 0;font-size:1.5rem;} .sub{margin:0 0 18px 0;color:var(--muted)}
 
 /* Slider */
@@ -47,4 +47,47 @@ pool-mode-selector{display:block;margin:18px 0}
 
 /* Animation for mode selector breathing effect */
 @keyframes breathe{0%{opacity:.18;filter:brightness(95%)}50%{opacity:.40;filter:brightness(110%)}100%{opacity:.18;filter:brightness(95%)}}
+
+/* Simulator mode banner */
+.simulator-banner {
+  background: linear-gradient(90deg, #f5d15f, #e6c550);
+  color: #2a1f08;
+  padding: 12px 20px;
+  margin: -28px -28px 20px -28px;
+  border-radius: 22px 22px 0 0;
+  border-bottom: 2px solid #d4b846;
+  box-shadow: 0 4px 12px rgba(245, 209, 95, 0.3);
+}
+.simulator-banner.hidden {
+  display: none;
+}
+.simulator-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.simulator-icon {
+  font-size: 1.2em;
+}
+.simulator-text {
+  font-size: 0.95em;
+}
+.simulator-toggle {
+  background: rgba(42, 31, 8, 0.15);
+  color: #2a1f08;
+  border: 1px solid rgba(42, 31, 8, 0.3);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.8em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.simulator-toggle:hover {
+  background: rgba(42, 31, 8, 0.25);
+  border-color: rgba(42, 31, 8, 0.5);
+}
 

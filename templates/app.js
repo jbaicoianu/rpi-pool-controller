@@ -39,16 +39,85 @@ function adoptDiagramStyles(shadowRoot) {
 // ===== Component refs =====
 const diagram = document.getElementById('diagram');
 const modeSelector = document.getElementById('mode-selector');
+const relayPanel = document.getElementById('relay-panel');
+const simulatorBanner = document.getElementById('simulator-banner');
+const simulatorToggle = document.getElementById('simulator-toggle');
 
 // Global state
 let availableModes = [];
 let currentMode = 'service';
+let simulatorMode = false;
+let gpioHardwareAvailable = true;
 
 // Status update functions for mode selector
 function updateModeSelector(status) {
   if (modeSelector && typeof modeSelector.updateStatus === 'function') {
     modeSelector.updateStatus(status);
   }
+}
+
+// Simulator mode functions
+function updateSimulatorBanner(isSimulator, hardwareAvailable = true) {
+  simulatorMode = isSimulator;
+  gpioHardwareAvailable = hardwareAvailable;
+  
+  if (simulatorBanner) {
+    simulatorBanner.classList.toggle('hidden', !isSimulator);
+    
+    if (simulatorToggle) {
+      if (!hardwareAvailable) {
+        simulatorToggle.textContent = 'No GPIO Hardware';
+        simulatorToggle.disabled = true;
+        simulatorToggle.style.opacity = '0.6';
+        simulatorToggle.style.cursor = 'not-allowed';
+      } else {
+        simulatorToggle.textContent = isSimulator ? 'Exit Simulator' : 'Enter Simulator';
+        simulatorToggle.disabled = false;
+        simulatorToggle.style.opacity = '1';
+        simulatorToggle.style.cursor = 'pointer';
+      }
+    }
+    
+    // Update banner text for hardware detection
+    const bannerText = simulatorBanner.querySelector('.simulator-text');
+    if (bannerText) {
+      if (!hardwareAvailable) {
+        bannerText.textContent = 'SIMULATOR MODE (No GPIO Hardware)';
+      } else {
+        bannerText.textContent = 'SIMULATOR MODE';
+      }
+    }
+  }
+}
+
+async function toggleSimulator() {
+  if (!gpioHardwareAvailable) {
+    console.log('Cannot toggle simulator mode: GPIO hardware not available');
+    return;
+  }
+  
+  try {
+    const response = await fetch('/simulator', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: !simulatorMode })
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('Failed to toggle simulator mode:', errorData.message);
+      return;
+    }
+    
+    // Status will be updated via polling
+  } catch (error) {
+    console.error('Failed to toggle simulator mode:', error);
+  }
+}
+
+// Set up simulator toggle button
+if (simulatorToggle) {
+  simulatorToggle.addEventListener('click', toggleSimulator);
 }
 
 async function fetchStatus(){
@@ -97,11 +166,19 @@ async function applyStatus(j){
   }
   currentMode = j.mode || 'service';
   
+  // Update simulator mode
+  updateSimulatorBanner(j.simulator, j.gpioHardwareAvailable);
+  
   // Update diagram based on equipment state
   if (j.equipment && diagram) {
     const eq = j.equipment;
     diagram.setPump(eq.pump, eq.pumpSpeed);
     diagram.setHeater(eq.heater === 'on');
+  }
+  
+  // Update relay panel
+  if (j.gpio && relayPanel && typeof relayPanel.updateRelayStates === 'function') {
+    relayPanel.updateRelayStates(j.gpio);
   }
   
   // Update mode selector
@@ -646,6 +723,128 @@ class PoolHeater extends HTMLElement{
   setOn(on){ this.$box.classList.toggle('on', !!on); }
 }
 customElements.define('pool-equipment-heater', PoolHeater);
+
+// ===== Pool Relay Status Panel =====
+class PoolRelayPanel extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: 'open' });
+    this.relayStates = {};
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host {
+          display: block;
+          margin: 16px 0;
+        }
+        .relay-panel {
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 12px;
+          padding: 16px;
+        }
+        .panel-title {
+          font-size: 0.9rem;
+          font-weight: 600;
+          color: var(--muted, #9aa4b2);
+          margin-bottom: 12px;
+          text-align: center;
+          letter-spacing: 0.5px;
+        }
+        .relay-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+          gap: 8px;
+        }
+        .relay-item {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 12px;
+          background: rgba(0, 0, 0, 0.2);
+          border-radius: 8px;
+          border: 1px solid rgba(255, 255, 255, 0.05);
+          transition: all 0.2s ease;
+        }
+        .relay-indicator {
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          background: #4a5568;
+          box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+          transition: all 0.2s ease;
+          flex-shrink: 0;
+        }
+        .relay-indicator.on {
+          background: #2bd576;
+          box-shadow: 
+            inset 0 1px 2px rgba(0, 0, 0, 0.3),
+            0 0 8px rgba(43, 213, 118, 0.4);
+        }
+        .relay-label {
+          font-size: 0.75rem;
+          font-weight: 500;
+          color: var(--text, #e8ecf1);
+          opacity: 0.8;
+        }
+        .relay-pin {
+          font-size: 0.7rem;
+          color: var(--muted, #9aa4b2);
+          margin-left: auto;
+          opacity: 0.6;
+        }
+      </style>
+      <div class="relay-panel">
+        <div class="panel-title">GPIO Relay Status</div>
+        <div class="relay-grid" id="relay-grid"></div>
+      </div>
+    `;
+    
+    this.$grid = this.shadowRoot.getElementById('relay-grid');
+    this.setupRelayItems();
+  }
+  
+  setupRelayItems() {
+    const relays = [
+      { key: 'RELAY_INFLOW', label: 'Inflow Valve', pin: 25 },
+      { key: 'RELAY_OUTFLOW', label: 'Return Valve', pin: 24 },
+      { key: 'PUMP', label: 'Pump', pin: 23 },
+      { key: 'PUMP_TURBO', label: 'Pump Turbo', pin: 18 },
+      { key: 'HEATER_SPA', label: 'Heater', pin: 14 }
+    ];
+    
+    this.$grid.innerHTML = '';
+    relays.forEach(relay => {
+      const item = document.createElement('div');
+      item.className = 'relay-item';
+      item.innerHTML = `
+        <div class="relay-indicator" id="indicator-${relay.key}"></div>
+        <div class="relay-label">${relay.label}</div>
+        <div class="relay-pin">P${relay.pin}</div>
+      `;
+      this.$grid.appendChild(item);
+    });
+  }
+  
+  updateRelayStates(gpioStates) {
+    if (!gpioStates) return;
+    
+    this.relayStates = { ...gpioStates };
+    
+    // Update each relay indicator
+    Object.entries(gpioStates).forEach(([pinKey, state]) => {
+      const indicator = this.shadowRoot.getElementById(`indicator-${pinKey}`);
+      if (indicator) {
+        indicator.classList.toggle('on', state === 1);
+      }
+    });
+  }
+  
+  getRelayStates() {
+    return { ...this.relayStates };
+  }
+}
+
+customElements.define('pool-relay-panel', PoolRelayPanel);
 
 // ===== Start: initial fetch, RAF, and polling =====
 (async () => {
