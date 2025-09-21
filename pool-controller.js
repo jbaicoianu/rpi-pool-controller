@@ -206,7 +206,7 @@ function detectGpioHardware() {
     // Test if pigpio can actually initialize (this will fail on non-Pi systems)
     try {
       const testPin = new Gpio(25, { mode: Gpio.OUTPUT });
-      testPin.terminate();
+      testPin.digitalWrite(0); // Test basic operation
       console.log('GPIO hardware validation successful');
       return true;
     } catch (initError) {
