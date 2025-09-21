@@ -45,7 +45,7 @@ const simulatorToggle = document.getElementById('simulator-toggle');
 
 // Global state
 let availableModes = [];
-let currentMode = 'service';
+let currentMode = 'auto';
 let simulatorMode = false;
 let gpioHardwareAvailable = true;
 
@@ -164,7 +164,7 @@ async function applyStatus(j){
   if (j.modes) {
     availableModes = j.modes;
   }
-  currentMode = j.mode || 'service';
+  currentMode = j.mode || 'auto';
   
   // Update simulator mode
   updateSimulatorBanner(j.simulator, j.gpioHardwareAvailable);
@@ -274,7 +274,7 @@ class PoolModeSelector extends HTMLElement {
     super();
     this.attachShadow({ mode: 'open' });
     this.modes = [];
-    this.currentMode = 'service';
+    this.currentMode = 'auto';
     this.targetMode = null;
     this.busy = false;
     this.isDragging = false;

@@ -269,7 +269,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 // ---- Status model ----
 const status = {
-  mode: 'service',      // current mode key
+  mode: 'auto',      // current mode key
   target: null,         // target mode key or null (for transitions)
   busy: false,
   lastError: null,
