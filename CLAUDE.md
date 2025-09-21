@@ -8,7 +8,7 @@ This is a Raspberry Pi-based spa/pool controller system that provides a web inte
 
 ## Architecture
 
-**Backend (`spa-server.js`)**:
+**Backend (`pool-controller.js`)**:
 - Express.js REST API server that controls GPIO hardware
 - Uses pigpio library for GPIO control via BCM pin numbering
 - Implements non-blocking mode switching with valve timing
@@ -37,7 +37,7 @@ npm install
 **Run the server**:
 ```bash
 npm start
-# or directly: sudo node spa-server.js
+# or directly: sudo node pool-controller.js
 ```
 
 **Development with auto-reload**:
@@ -78,7 +78,7 @@ sudo npm start
 
 ## Hardware Configuration
 
-GPIO pins (BCM numbering) defined in `spa-server.js:19-28`:
+GPIO pins (BCM numbering) defined in `pool-controller.js:142-152`:
 - Pin 25: RELAY_INFLOW (suction valve)
 - Pin 24: RELAY_OUTFLOW (return valve)  
 - Pin 23: PUMP (main pump)
@@ -108,7 +108,7 @@ Valve operation timing: 30 seconds (`VALVE_WAIT_MS`)
 
 ## Key Files
 
-- `spa-server.js` - Main server and hardware control logic
+- `pool-controller.js` - Main server and hardware control logic
 - `templates/index.html` - Web interface HTML
 - `templates/app.js` - Frontend JavaScript with custom components
 - `templates/app.css` - Main UI styling

@@ -6,7 +6,7 @@
  *   GET /spa/off    -> start spa OFF sequence (non-blocking)
  *   GET /status     -> { ok, state, busy, target, valve: { suction, return }, valveWaitMs }
  *
- * Run: sudo node spa-server.js
+ * Run: sudo node pool-controller.js
  */
 
 const express = require('express');
