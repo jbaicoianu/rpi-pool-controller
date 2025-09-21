@@ -12,7 +12,6 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const detectRpi = require('detect-rpi');
 const { Gpio } = require('pigpio');
 
 // ---- Configuration Classes ----
@@ -195,17 +194,7 @@ let gpioHardwareAvailable = false;
 // Function to detect GPIO hardware availability
 function detectGpioHardware() {
   try {
-    // Use detect-rpi to check if we're on a Raspberry Pi
-    const isRpi = detectRpi();
-
-    if (!isRpi) {
-      console.log('Not running on Raspberry Pi hardware');
-      return false;
-    }
-
-    console.log('Raspberry Pi detected');
-
-    // Additional check: verify pigpio module can be loaded
+    // Verify pigpio module can be loaded
     const { Gpio } = require('pigpio');
 
     // Check for GPIO device accessibility (basic file system check)
