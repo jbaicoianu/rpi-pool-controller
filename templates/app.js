@@ -275,6 +275,7 @@ class PoolModeSelector extends HTMLElement {
     this.attachShadow({ mode: 'open' });
     this.modes = [];
     this.currentMode = 'service';
+    this.targetMode = null;
     this.busy = false;
     this.isDragging = false;
     this.dragStartX = 0;
@@ -473,10 +474,11 @@ class PoolModeSelector extends HTMLElement {
     const targetModeIndex = Math.round(progress * (this.modes.length - 1));
     const targetMode = this.modes[targetModeIndex];
     
-    if (targetMode && targetMode.key !== this.currentMode) {
+    const effectiveCurrentMode = this.targetMode || this.currentMode;
+    if (targetMode && targetMode.key !== effectiveCurrentMode) {
       this.switchToMode(targetMode.key);
     } else {
-      // Snap back to current position
+      // Snap back to current/target position
       this.updateVisualState();
     }
   }
@@ -504,6 +506,7 @@ class PoolModeSelector extends HTMLElement {
     const prevBusy = this.busy;
     
     this.currentMode = status.mode;
+    this.targetMode = status.target;
     this.busy = status.busy;
     
     // Update modes if provided
@@ -520,8 +523,10 @@ class PoolModeSelector extends HTMLElement {
   }
   
   updateVisualState() {
-    const currentIndex = this.modes.findIndex(m => m.key === this.currentMode);
-    const currentModeObj = this.modes.find(m => m.key === this.currentMode);
+    // Use target mode if we're transitioning, otherwise use current mode
+    const displayMode = this.targetMode || this.currentMode;
+    const currentIndex = this.modes.findIndex(m => m.key === displayMode);
+    const currentModeObj = this.modes.find(m => m.key === displayMode);
     
     if (currentIndex >= 0 && this.modes.length > 0) {
       // Calculate knob position
@@ -544,9 +549,10 @@ class PoolModeSelector extends HTMLElement {
         `inset 0 0 0 1px ${currentModeObj?.color}35, inset 0 0 18px ${currentModeObj?.color}22`;
     }
     
-    // Update label active state
+    // Update label active state - show target during transitions
+    const activeMode = this.targetMode || this.currentMode;
     this.$labels.querySelectorAll('.label').forEach((label, index) => {
-      label.classList.toggle('active', this.modes[index]?.key === this.currentMode);
+      label.classList.toggle('active', this.modes[index]?.key === activeMode);
     });
     
     // Update disabled and working states
@@ -575,11 +581,10 @@ class PoolModeSelector extends HTMLElement {
       this.$tint.style.background = `linear-gradient(90deg, ${targetMode.color}, ${targetMode.color}88)`;
       this.$sr.textContent = `Switching to: ${targetMode.name}`;
       
-      // Show working state
+      // Show working state immediately (will be confirmed by server status)
       this.$slider.classList.add('working');
-      this.busy = true; // Temporarily set busy for visual feedback
       
-      // Update active label
+      // Update active label to show target
       this.$labels.querySelectorAll('.label').forEach((label, index) => {
         label.classList.toggle('active', index === targetModeIndex);
       });
@@ -598,8 +603,7 @@ class PoolModeSelector extends HTMLElement {
       // Let polling handle the final UI update
     } catch (error) {
       console.error('Failed to switch mode:', error);
-      // Reset visual state on error
-      this.busy = false;
+      // Reset visual state on error - let polling reconcile
       this.$slider.classList.remove('working');
       this.updateVisualState();
     }
@@ -696,7 +700,6 @@ class PoolPump extends HTMLElement{
       this.$disc.style.animation = 'none';
     }
     this.speed = speed;
-	  console.log(state, speed);
   }
   handleClick(ev) {
 	  console.log('eeee', this.speed);
