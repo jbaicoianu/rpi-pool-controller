@@ -3,7 +3,7 @@
   "description": "Normal pool circulation",
   "order": 1,
   "equipment": {
-    "pump": "on",
+    "pump": "off",
     "pumpSpeed": "low",
     "inflowValve": "pool",
     "outflowValve": "pool",
