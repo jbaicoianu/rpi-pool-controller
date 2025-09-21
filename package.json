@@ -12,6 +12,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "detect-rpi": "^1.4.0",
     "express": "^5.1.0",
     "onoff": "^6.0.3",
     "pigpio": "^3.3.1"

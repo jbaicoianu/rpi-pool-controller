@@ -12,6 +12,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const detectRpi = require('detect-rpi');
 const { Gpio } = require('pigpio');
 
 // ---- Configuration Classes ----
@@ -23,7 +24,7 @@ class EquipmentState {
     this.outflowValve = outflowValve;
     this.heater = heater;
   }
-  
+
   static fromConfig(config) {
     return new EquipmentState(
       config.pump,
@@ -33,7 +34,7 @@ class EquipmentState {
       config.heater
     );
   }
-  
+
   copy() {
     return new EquipmentState(this.pump, this.pumpSpeed, this.inflowValve, this.outflowValve, this.heater);
   }
@@ -48,16 +49,16 @@ class ModeConfig {
     this.equipment = EquipmentState.fromConfig(equipment);
     this.color = color;
   }
-  
+
   static loadFromDirectory(modesDir) {
     const modes = new Map();
     const files = fs.readdirSync(modesDir).filter(f => f.endsWith('.json'));
-    
+
     for (const file of files) {
       const modePath = path.join(modesDir, file);
       const config = JSON.parse(fs.readFileSync(modePath, 'utf8'));
       const key = path.basename(file, '.json');
-      
+
       modes.set(key, new ModeConfig(
         key,
         config.name,
@@ -67,10 +68,10 @@ class ModeConfig {
         config.color
       ));
     }
-    
+
     return modes;
   }
-  
+
   static getSortedModes(modes) {
     return Array.from(modes.values()).sort((a, b) => a.order - b.order);
   }
@@ -83,21 +84,21 @@ class PoolController {
     this.simulator = simulator;
     this.currentState = new EquipmentState();
     this.gpioStates = {};
-    
+
     // Initialize GPIO states to 0
     Object.keys(pins).forEach(pinKey => {
       this.gpioStates[pinKey] = 0;
     });
   }
-  
+
   setSimulatorMode(enabled) {
     this.simulator = enabled;
     console.log(`Simulator mode: ${enabled ? 'ENABLED' : 'DISABLED'}`);
   }
-  
+
   applyEquipmentState(equipmentState) {
     this.currentState = equipmentState.copy();
-    
+
     // Calculate new GPIO states
     const newGpioStates = {
       PUMP: equipmentState.pump === 'on' ? 1 : 0,
@@ -106,31 +107,31 @@ class PoolController {
       RELAY_OUTFLOW: equipmentState.outflowValve === 'spa' ? 1 : 0,
       HEATER_SPA: equipmentState.heater === 'on' ? 1 : 0
     };
-    
+
     // Update stored GPIO states
     this.gpioStates = { ...newGpioStates };
-    
+
     if (this.simulator) {
       console.log(`[SIMULATOR] Would apply GPIO states:`, newGpioStates);
       return;
     }
-    
+
     // Apply to actual GPIO pins
     Object.entries(newGpioStates).forEach(([pinKey, state]) => {
       this.gpio[this.pins[pinKey]].digitalWrite(state);
     });
-    
+
     console.log(`Applied state: pump=${equipmentState.pump}/${equipmentState.pumpSpeed}, valves=${equipmentState.inflowValve}/${equipmentState.outflowValve}, heater=${equipmentState.heater}`);
   }
-  
+
   applyMode(modeConfig) {
     this.applyEquipmentState(modeConfig.equipment);
   }
-  
+
   getCurrentState() {
     return this.currentState.copy();
   }
-  
+
   getGpioStates() {
     return { ...this.gpioStates };
   }
@@ -168,7 +169,7 @@ function toggleSimulatorMode(enabled) {
     console.log('⚠️  Cannot disable simulator mode: GPIO hardware not available');
     return false;
   }
-  
+
   simulatorMode = enabled;
   poolController.setSimulatorMode(enabled);
   console.log(`Simulator mode toggled: ${enabled ? 'ENABLED' : 'DISABLED'}`);
@@ -194,21 +195,30 @@ let gpioHardwareAvailable = false;
 // Function to detect GPIO hardware availability
 function detectGpioHardware() {
   try {
-    // Check if we're on a system that supports GPIO
-    // First check if pigpio module can be loaded properly
+    // Use detect-rpi to check if we're on a Raspberry Pi
+    const isRpi = detectRpi();
+
+    if (!isRpi) {
+      console.log('Not running on Raspberry Pi hardware');
+      return false;
+    }
+
+    console.log('Raspberry Pi detected');
+
+    // Additional check: verify pigpio module can be loaded
     const { Gpio } = require('pigpio');
-    
-    // Check if we can access the GPIO interface (requires /dev/gpiomem or root)
-    const testGpio = new Gpio(2, { mode: Gpio.INPUT }); // Use a safe pin for testing
-    testGpio.terminate(); // Clean up immediately
+
+    // Check for GPIO device accessibility (basic file system check)
+    if (!fs.existsSync('/dev/gpiomem') && !fs.existsSync('/dev/mem')) {
+      console.log('GPIO device files not accessible');
+      return false;
+    }
+
+    console.log('GPIO hardware validation successful');
     return true;
+
   } catch (error) {
     console.log('GPIO hardware detection failed:', error.message);
-    
-    // Common errors that indicate no GPIO hardware:
-    // - pigpio not available
-    // - /dev/gpiomem not accessible
-    // - not running on Pi hardware
     return false;
   }
 }
@@ -216,7 +226,7 @@ function detectGpioHardware() {
 // Check for GPIO hardware unless explicitly in simulator mode
 if (!simulatorMode) {
   gpioHardwareAvailable = detectGpioHardware();
-  
+
   if (!gpioHardwareAvailable) {
     console.log('⚠️  GPIO hardware not detected - automatically enabling simulator mode');
     simulatorMode = true;
@@ -236,7 +246,7 @@ if (!simulatorMode && gpioHardwareAvailable) {
     console.error('❌ GPIO initialization failed:', error.message);
     console.log('🔄 Falling back to simulator mode...');
     simulatorMode = true;
-    
+
     // Clean up any partially initialized GPIO
     Object.values(gpio).forEach(pin => {
       try { pin.constructor.name === 'Gpio' && pin.terminate?.(); } catch {}
@@ -287,7 +297,7 @@ function statusPayload() {
   const pct = currentValvePercent(); // float, linear
   const currentMode = modes.get(status.mode);
   const targetMode = status.target ? modes.get(status.target) : null;
-  
+
   return {
     ok: true,
     mode: status.mode,
@@ -322,7 +332,7 @@ function statusPayload() {
 function getValvePercentForMode(modeKey) {
   const mode = modes.get(modeKey);
   if (!mode) return 0;
-  
+
   // Calculate valve percentage based on valve positions
   // spa valves = 100%, pool valves = 0%
   if (mode.equipment.inflowValve === 'spa' && mode.equipment.outflowValve === 'spa') {
@@ -337,15 +347,15 @@ async function switchToMode(modeKey) {
   if (!targetMode) {
     throw new Error(`Unknown mode: ${modeKey}`);
   }
-  
+
   try {
     status.busy = true;
     status.target = modeKey;
     console.log(`Switching to mode: ${targetMode.name}`);
-    
+
     const currentValvePct = currentValvePercent();
     const targetValvePct = getValvePercentForMode(modeKey);
-    
+
     // Start valve timeline if valve position needs to change
     if (currentValvePct !== targetValvePct) {
       valve.from = currentValvePct;
@@ -355,37 +365,37 @@ async function switchToMode(modeKey) {
       valve.moving = true;
       console.log(`Moving valves from ${currentValvePct}% to ${targetValvePct}%`);
     }
-    
+
     // Apply equipment state immediately (except for final pump speed for spa mode)
     const equipmentState = targetMode.equipment.copy();
     if (modeKey === 'spa' && targetValvePct > currentValvePct) {
       // For spa mode, start with low speed during valve transition
       equipmentState.pumpSpeed = 'low';
     }
-    
+
     poolController.applyEquipmentState(equipmentState);
-    
+
     // Wait for valve transition if needed
     if (valve.moving) {
       console.log('Waiting for valve transition...');
       await sleep(VALVE_WAIT_MS);
-      
+
       valve.percent = targetValvePct;
       valve.moving = false;
-      
+
       // Apply final equipment state (e.g., high pump speed for spa)
       if (modeKey === 'spa') {
         poolController.applyEquipmentState(targetMode.equipment);
       }
     }
-    
+
     status.mode = modeKey;
     console.log(`Mode switch complete: ${targetMode.name}`);
-    
+
   } catch (e) {
     console.error(`Mode switch error (${modeKey}):`, e);
     status.lastError = String(e);
-    
+
     // On error, try to go to safe service mode
     const serviceMode = modes.get('service');
     if (serviceMode && modeKey !== 'service') {
@@ -406,27 +416,27 @@ app.use(express.json());
 // Switch to a specific mode
 app.get('/mode/:modeKey', async (req, res) => {
   const { modeKey } = req.params;
-  
+
   // Validate mode exists
   if (!modes.has(modeKey)) {
     return res.status(404).json({ ok: false, message: `Unknown mode: ${modeKey}` });
   }
-  
+
   // Check if already in this mode and not busy
   if (!status.busy && status.mode === modeKey) {
     return res.json(statusPayload());
   }
-  
+
   // Check if already switching to this mode
   if (status.busy && status.target === modeKey) {
     return res.json(statusPayload());
   }
-  
+
   // Check if busy with another operation
   if (status.busy) {
     return res.status(409).json({ ok: false, busy: true, message: 'Busy with another operation' });
   }
-  
+
   // Start the mode switch (non-blocking)
   switchToMode(modeKey);
   res.json(statusPayload());
@@ -448,10 +458,10 @@ app.get('/modes', (req, res) => {
 app.post('/equipment/:type', (req, res) => {
   const { type } = req.params;
   const { state } = req.body;
-  
+
   // Get current equipment state
   const currentState = poolController.getCurrentState();
-  
+
   // Update specific equipment
   switch (type) {
     case 'pump':
@@ -482,13 +492,13 @@ app.post('/equipment/:type', (req, res) => {
     default:
       return res.status(400).json({ ok: false, message: `Unknown equipment type: ${type}` });
   }
-  
+
   // Apply the updated state
   poolController.applyEquipmentState(currentState);
-  
+
   // Switch to service mode
   status.mode = 'service';
-  
+
   res.json(statusPayload());
 });
 
@@ -520,11 +530,11 @@ app.get('/status', (_req, res) => res.json(statusPayload()));
 // Simulator mode control
 app.post('/simulator', (req, res) => {
   const { enabled } = req.body;
-  
+
   if (typeof enabled !== 'boolean') {
     return res.status(400).json({ ok: false, message: 'enabled field must be boolean' });
   }
-  
+
   const success = toggleSimulatorMode(enabled);
   if (!success) {
     return res.status(400).json({ 
@@ -534,7 +544,7 @@ app.post('/simulator', (req, res) => {
       gpioHardwareAvailable: gpioHardwareAvailable
     });
   }
-  
+
   res.json(statusPayload());
 });
 
