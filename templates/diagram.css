@@ -19,6 +19,10 @@
 
 
 /* -------------------- <pool-equipment-valve> -------------------- */
+:host(pool-equipment-valve) {
+  position: relative;
+  z-index: 10;
+}
 :host(pool-equipment-valve) .wrap {
   position: relative; width: 220px; height: 140px;
 }
@@ -46,9 +50,21 @@
   border-radius: 12px;
 }
 :host(pool-equipment-valve) .flow {
-  background: linear-gradient(90deg, #2bd576, #22b36b);
-  box-shadow: inset 0 0 18px rgba(43,213,118,.35);
+  background: linear-gradient(90deg, #60a5fa, #3b82f6);
+  box-shadow: inset 0 0 18px rgba(96,165,250,.35);
 }
+
+/* Partial flow intensity classes */
+:host(pool-equipment-valve) .flow_10pct { background: linear-gradient(90deg, #60a5fa, #3b82f6); opacity: 0.1; }
+:host(pool-equipment-valve) .flow_20pct { background: linear-gradient(90deg, #60a5fa, #3b82f6); opacity: 0.2; }
+:host(pool-equipment-valve) .flow_30pct { background: linear-gradient(90deg, #60a5fa, #3b82f6); opacity: 0.3; }
+:host(pool-equipment-valve) .flow_40pct { background: linear-gradient(90deg, #60a5fa, #3b82f6); opacity: 0.4; }
+:host(pool-equipment-valve) .flow_50pct { background: linear-gradient(90deg, #60a5fa, #3b82f6); opacity: 0.5; }
+:host(pool-equipment-valve) .flow_60pct { background: linear-gradient(90deg, #60a5fa, #3b82f6); opacity: 0.6; }
+:host(pool-equipment-valve) .flow_70pct { background: linear-gradient(90deg, #60a5fa, #3b82f6); opacity: 0.7; }
+:host(pool-equipment-valve) .flow_80pct { background: linear-gradient(90deg, #60a5fa, #3b82f6); opacity: 0.8; }
+:host(pool-equipment-valve) .flow_90pct { background: linear-gradient(90deg, #60a5fa, #3b82f6); opacity: 0.9; }
+:host(pool-equipment-valve) .flow_100pct { background: linear-gradient(90deg, #60a5fa, #3b82f6); opacity: 1.0; }
 /* Valve body */
 :host(pool-equipment-valve) .body {
   position: absolute; left: 80px; top: 49px; width: 60px; height: 60px; border-radius: 999px;
@@ -154,11 +170,12 @@
   font: 700 .9rem/1 ui-sans-serif; letter-spacing: .5px; color: var(--muted, #9aa4b2);
 }
 
-pool-equipment-valve#suction {
-  position: relative;
-  top: 75px;
-}
 pool-equipment-valve#return {
   position: relative;
-  top: -75px;
+  top: 0;
+}
+pool-equipment-valve#suction {
+  position: relative;
+  top: 20px;
+  left: 20px;
 }

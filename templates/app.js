@@ -237,39 +237,87 @@ class PoolDiagram extends HTMLElement{
           border: 2px solid rgba(255,255,255,0.1);
           border-radius: 12px;
           background: rgba(0,0,0,0.1);
+	  align-items: center;
         }
         
         /* Grid positioning */
+	/*
         #pool { grid-column: 1; grid-row: 1; justify-self: center; align-self: center; }
         #spa { grid-column: 1; grid-row: 3; justify-self: center; align-self: center; }
-        #suction { grid-column: 2; grid-row: 1; }
-        #return { grid-column: 2; grid-row: 3; }
-        #pump { grid-column: 3; grid-row: 1; justify-self: center; }
+	*/
+        #suction { grid-column: 2; grid-row: 3; }
+        #return { grid-column: 2; grid-row: 1; }
+        #pump { grid-column: 3; grid-row: 3; justify-self: center; }
         #filter { grid-column: 3; grid-row: 2; justify-self: center; }
-        #heater { grid-column: 3; grid-row: 3; justify-self: center; }
+        #heater { grid-column: 3; grid-row: 1; justify-self: center; }
+	.water-bodies { grid-column: 1; grid-row: span 3; position: relative; height: 100%; }
+	.water-bodies #pool {
+	  position: absolute;
+	  height: 100%;
+	  width: 100px;
+	}
+	.water-bodies #spa {
+	  position: absolute;
+	  height: 60px;
+	  width: 40px;
+	  left: 100px;
+	  bottom: 10px;
+	}
+        #pool-skimmer {
+          position: absolute;
+          bottom: -5px;
+	  left: 0%;
+	  z-index: 12;
+        }
+        #pool-inlet {
+          position: absolute;
+          top: 10px;
+	  left: 90px;
+	  z-index: 12;
+        }
+        #spa-drain {
+          position: absolute;
+          bottom: 20px;
+	  left: 100px;
+	  z-index: 12;
+        }
+        #spa-inlet {
+          position: absolute;
+          bottom: 20px;
+	  left: 120px;
+	  z-index: 12;
+        }
       </style>
       
       <div class="equipment-shed">
         <!-- Water bodies -->
-        <pool-water-body id="pool" type="pool" temperature="75"></pool-water-body>
-        <pool-water-body id="spa" type="spa" temperature="104"></pool-water-body>
+        <div class="water-bodies">
+          <pool-water-body id="pool" type="pool" temperature="75">
+	  </pool-water-body>
+          <pool-water-body id="spa" type="spa" temperature="104">
+	  </pool-water-body>
+            <pool-equipment-drain id="spa-drain"></pool-equipment-drain>
+            <pool-equipment-inlet id="spa-inlet"></pool-equipment-inlet>
+            <pool-equipment-skimmer id="pool-skimmer"></pool-equipment-skimmer>
+            <pool-equipment-inlet id="pool-inlet"></pool-equipment-inlet>
+        </div>
         
         <!-- Equipment flow path -->
-        <pool-equipment-valve id="suction" label="Suction" rotation="-90"></pool-equipment-valve>
+        <pool-equipment-valve id="suction" label="Suction" rotation="-90" reversed="true"></pool-equipment-valve>
         <pool-equipment-pump id="pump"></pool-equipment-pump>
         <pool-equipment-filter id="filter"></pool-equipment-filter>
         <pool-equipment-valve id="return" label="Return" rotation="-90"></pool-equipment-valve>
         <pool-equipment-heater id="heater"></pool-equipment-heater>
         
         <!-- Pipes -->
-        <pool-pipe from="pool.outlet" to="suction.right"></pool-pipe>
-        <pool-pipe from="spa.outlet" to="suction.left"></pool-pipe>
+        <pool-pipe from="pool-skimmer.outlet" to="suction.left"></pool-pipe>
+        <pool-pipe from="spa-drain.outlet" to="suction.right"></pool-pipe>
         <pool-pipe from="suction.bottom" to="pump.input"></pool-pipe>
         <pool-pipe from="pump.output" to="filter.input"></pool-pipe>
         <pool-pipe from="filter.output" to="heater.input"></pool-pipe>
         <pool-pipe from="heater.output" to="return.bottom"></pool-pipe>
-        <pool-pipe from="return.right" to="pool.inlet"></pool-pipe>
-        <pool-pipe from="return.left" to="spa.inlet"></pool-pipe>
+        <pool-pipe from="return.right" to="pool-inlet.inlet"></pool-pipe>
+        <pool-pipe from="return.left" to="spa-inlet.inlet"></pool-pipe>
       </div>
     `;
     this.$pump   = this.shadowRoot.getElementById('pump');
@@ -307,8 +355,8 @@ class PoolDiagram extends HTMLElement{
   
   throttledUpdatePipeFlows() {
     const now = Date.now();
-    if (now - this.lastFlowUpdate < 10) {
-      return; // Skip if updated less than 1 second ago
+    if (now - this.lastFlowUpdate < 100) {
+      return; // Skip if updated less than 100 ms ago
     }
     this.lastFlowUpdate = now;
     this.updatePipeFlows();
@@ -319,7 +367,7 @@ class PoolDiagram extends HTMLElement{
     const flowModel = new PoolFlowModel();
     
     // Auto-discover all flow components in the diagram
-    const allComponents = this.shadowRoot.querySelectorAll('pool-water-body, pool-equipment-valve, pool-equipment-pump, pool-equipment-filter, pool-equipment-heater');
+    const allComponents = this.shadowRoot.querySelectorAll('pool-water-body, pool-equipment-valve, pool-equipment-pump, pool-equipment-filter, pool-equipment-heater, pool-equipment-drain, pool-equipment-skimmer, pool-equipment-inlet');
     
     allComponents.forEach(element => {
       const id = element.id;
@@ -344,34 +392,34 @@ class PoolDiagram extends HTMLElement{
     // Calculate flow for each pipe
     const flows = flowModel.calculateFlows();
     
-    // Apply flow state to pipes
+    // Apply flow state to pipes with intensity
     this.$pipes.forEach(pipe => {
       const flowKey = `${pipe.fromComponent}.${pipe.fromPoint}-${pipe.toComponent}.${pipe.toPoint}`;
-      const hasFlow = flows[flowKey] || false;
-      pipe.setFlow(hasFlow);
+      const flowIntensity = flows[flowKey] || 0;
+      pipe.setFlow(flowIntensity);
     });
     
-    // Apply flow state to valve ports
+    // Apply flow state to valve ports with intensity
     const valves = this.shadowRoot.querySelectorAll('pool-equipment-valve');
     valves.forEach(valve => {
       // Clear all valve port flows first
-      valve.setPipeFlow('left', false);
-      valve.setPipeFlow('right', false);
-      valve.setPipeFlow('bottom', false);
+      valve.setPipeFlow('left', 0);
+      valve.setPipeFlow('right', 0);
+      valve.setPipeFlow('bottom', 0);
       
       // Check each connection involving this valve
       this.$pipes.forEach(pipe => {
         const flowKey = `${pipe.fromComponent}.${pipe.fromPoint}-${pipe.toComponent}.${pipe.toPoint}`;
-        const hasFlow = flows[flowKey] || false;
+        const flowIntensity = flows[flowKey] || 0;
         
-        if (hasFlow) {
+        if (flowIntensity > 0) {
           // If flow is coming INTO this valve
           if (pipe.toComponent === valve.id) {
-            valve.setPipeFlow(pipe.toPoint, true);
+            valve.setPipeFlow(pipe.toPoint, flowIntensity);
           }
           // If flow is coming FROM this valve
           if (pipe.fromComponent === valve.id) {
-            valve.setPipeFlow(pipe.fromPoint, true);
+            valve.setPipeFlow(pipe.fromPoint, flowIntensity);
           }
         }
       });
@@ -398,7 +446,8 @@ class PoolDiagram extends HTMLElement{
     if (tagName === 'pool-equipment-valve') {
       return { 
         type: 'valve', 
-        position: element.value || 0 
+        position: element.value || 0,
+        reversed: element.getAttribute('reversed') === 'true'
       };
     }
     
@@ -414,7 +463,7 @@ class PoolDiagram extends HTMLElement{
       return { 
         type: 'passthrough', 
         pressure: 0,
-        resistance: 0.1 // Small flow resistance
+        resistance: 0 // No flow resistance
       };
     }
     
@@ -423,7 +472,31 @@ class PoolDiagram extends HTMLElement{
       return { 
         type: 'passthrough', 
         pressure: 0,
-        resistance: isOn ? 0.2 : 0.1 // Higher resistance when heating
+        resistance: 0 // No flow resistance
+      };
+    }
+    
+    if (tagName === 'pool-equipment-drain') {
+      return { 
+        type: 'reservoir', 
+        pressure: 0,
+        waterType: 'drain'
+      };
+    }
+    
+    if (tagName === 'pool-equipment-skimmer') {
+      return { 
+        type: 'reservoir', 
+        pressure: 0,
+        waterType: 'skimmer'
+      };
+    }
+    
+    if (tagName === 'pool-equipment-inlet') {
+      return { 
+        type: 'reservoir', 
+        pressure: 0,
+        waterType: 'inlet'
       };
     }
     
@@ -1024,18 +1097,43 @@ class PoolValve extends PoolFlowComponent{
     // Note: Flow states are managed separately by the flow calculation system
   }
   
-  // Method to control individual pipe flow lighting
-  setPipeFlow(port, flowing) {
+  // Method to control individual pipe flow lighting with intensity
+  setPipeFlow(port, flowIntensity) {
+    const pipe = this.getPipeElement(port);
+    if (!pipe) return;
+    
+    // Determine target class based on intensity
+    let targetClass = '';
+    if (flowIntensity > 0) {
+      if (flowIntensity >= 0.995) {  // Use tolerance to prevent flickering between flow and flow_100pct
+        targetClass = 'flow'; // Full flow with glow effect
+      } else {
+        const percentage = Math.round(flowIntensity * 10) * 10; // Round to nearest 10%
+        const clampedPercentage = Math.max(10, Math.min(100, percentage)); // Clamp between 10-100%
+        targetClass = `flow_${clampedPercentage}pct`;
+      }
+    }
+    
+    // Only update classes if they need to change
+    const currentClass = pipe.className.split(' ').find(cls => cls === 'flow' || cls.startsWith('flow_'));
+    if (currentClass !== targetClass) {
+      // Clear all flow classes only when necessary
+      pipe.classList.remove('flow', 'flow_10pct', 'flow_20pct', 'flow_30pct', 'flow_40pct', 
+                           'flow_50pct', 'flow_60pct', 'flow_70pct', 'flow_80pct', 'flow_90pct', 'flow_100pct');
+      
+      // Apply new class if needed
+      if (targetClass) {
+        pipe.classList.add(targetClass);
+      }
+    }
+  }
+  
+  getPipeElement(port) {
     switch(port) {
-      case 'left':
-        this.$pipeLeft.classList.toggle('flow', flowing);
-        break;
-      case 'right':
-        this.$pipeRight.classList.toggle('flow', flowing);
-        break;
-      case 'bottom':
-        this.$pipeBottom.classList.toggle('flow', flowing);
-        break;
+      case 'left': return this.$pipeLeft;
+      case 'right': return this.$pipeRight; 
+      case 'bottom': return this.$pipeBottom;
+      default: return null;
     }
   }
   applyRotation() {
@@ -1187,6 +1285,7 @@ class PoolWaterBody extends PoolFlowComponent {
           box-shadow: inset 0 2px 8px rgba(0,0,0,0.3), 0 4px 12px rgba(37,99,235,0.2);
           position: relative;
           overflow: hidden;
+	  z-index: 10;
         }
         .water-body.spa {
           background: linear-gradient(135deg, #dc2626, #b91c1c);
@@ -1379,9 +1478,21 @@ class PoolPipe extends HTMLElement {
           filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
         }
         .pipe-path.flowing {
-          stroke: #2bd576;
-          filter: drop-shadow(0 0 8px rgba(43,213,118,0.4));
+          stroke: #60a5fa;
+          filter: drop-shadow(0 0 8px rgba(96,165,250,0.4));
         }
+        
+        /* Partial flow intensity classes for pipes */
+        .pipe-path.flow_10pct { stroke: #60a5fa; opacity: 0.1; }
+        .pipe-path.flow_20pct { stroke: #60a5fa; opacity: 0.2; }
+        .pipe-path.flow_30pct { stroke: #60a5fa; opacity: 0.3; }
+        .pipe-path.flow_40pct { stroke: #60a5fa; opacity: 0.4; }
+        .pipe-path.flow_50pct { stroke: #60a5fa; opacity: 0.5; }
+        .pipe-path.flow_60pct { stroke: #60a5fa; opacity: 0.6; }
+        .pipe-path.flow_70pct { stroke: #60a5fa; opacity: 0.7; }
+        .pipe-path.flow_80pct { stroke: #60a5fa; opacity: 0.8; }
+        .pipe-path.flow_90pct { stroke: #60a5fa; opacity: 0.9; }
+        .pipe-path.flow_100pct { stroke: #60a5fa; opacity: 1.0; }
         .flow-animation {
           fill: none;
           stroke: rgba(255,255,255,0.6);
@@ -1490,25 +1601,37 @@ class PoolPipe extends HTMLElement {
     const dx = endX - startX;
     const dy = endY - startY;
     
-    // Simple Manhattan routing: go horizontal first, then vertical
-    // This creates a path with only 90° turns
     let path = `M ${startX} ${startY}`;
     
-    // If we need to move both horizontally and vertically
-    if (Math.abs(dx) > 1 && Math.abs(dy) > 1) {
-      // Choose routing strategy based on which direction is longer
-      if (Math.abs(dx) >= Math.abs(dy)) {
-        // Go horizontal first, then vertical
-        const midX = startX + dx;
-        path += ` L ${midX} ${startY} L ${midX} ${endY}`;
-      } else {
-        // Go vertical first, then horizontal
-        const midY = startY + dy;
-        path += ` L ${startX} ${midY} L ${endX} ${midY}`;
-      }
-    } else {
-      // Direct line (already aligned horizontally or vertically)
+    // If already aligned (horizontal or vertical), use 0 turns (straight line)
+    if (Math.abs(dx) <= 1) {
+      // Vertically aligned
       path += ` L ${endX} ${endY}`;
+    } else if (Math.abs(dy) <= 1) {
+      // Horizontally aligned
+      path += ` L ${endX} ${endY}`;
+    } else {
+      // Need to route with 2 turns for cleaner paths
+      // Place turns at midpoints for equal-length segments
+      
+      // Choose routing direction based on the longer distance
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        // Horizontal-dominant: horizontal → vertical → horizontal
+        // Split the horizontal distance in half
+        const midX = startX + dx / 2;
+        
+        path += ` L ${midX} ${startY}`;   // First segment: half horizontal
+        path += ` L ${midX} ${endY}`;     // Second segment: full vertical
+        path += ` L ${endX} ${endY}`;     // Third segment: half horizontal
+      } else {
+        // Vertical-dominant: vertical → horizontal → vertical  
+        // Split the vertical distance in half
+        const midY = startY + dy / 2;
+        
+        path += ` L ${startX} ${midY}`;   // First segment: half vertical
+        path += ` L ${endX} ${midY}`;     // Second segment: full horizontal
+        path += ` L ${endX} ${endY}`;     // Third segment: half vertical
+      }
     }
     
     return path;
@@ -1516,12 +1639,120 @@ class PoolPipe extends HTMLElement {
 
   updateFlowState() {
     const pipePath = this.shadowRoot.querySelector('.pipe-path');
-    pipePath.classList.toggle('flowing', this.flowing);
+    
+    // Clear all flow classes
+    pipePath.classList.remove('flowing', 'flow_10pct', 'flow_20pct', 'flow_30pct', 'flow_40pct',
+                             'flow_50pct', 'flow_60pct', 'flow_70pct', 'flow_80pct', 'flow_90pct', 'flow_100pct');
+    
+    // Apply appropriate flow class based on intensity
+    if (this.flowIntensity > 0) {
+      if (this.flowIntensity >= 1.0) {
+        pipePath.classList.add('flowing'); // Full flow
+      } else {
+        const percentage = Math.round(this.flowIntensity * 10) * 10; // Round to nearest 10%
+        const clampedPercentage = Math.max(10, Math.min(100, percentage)); // Clamp between 10-100%
+        pipePath.classList.add(`flow_${clampedPercentage}pct`);
+      }
+    }
   }
   
-  setFlow(flowing) {
-    this.flowing = flowing;
-    this.setAttribute('flowing', flowing);
+  setFlow(flowIntensity) {
+    this.flowIntensity = typeof flowIntensity === 'number' ? flowIntensity : (flowIntensity ? 1.0 : 0);
+    this.flowing = this.flowIntensity > 0;
+    this.setAttribute('flowing', this.flowing);
+    this.updateFlowState();
+  }
+}
+
+// ===== Simple Equipment Components =====
+
+class PoolDrain extends PoolFlowComponent {
+  constructor() {
+    super();
+    this.defineConnectionPoint('port', 10, 10, 'output');
+  }
+  
+  connectedCallback() {
+    this.attachShadow({ mode: 'open' });
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host {
+          display: block;
+          width: 20px;
+          height: 20px;
+        }
+        .drain {
+          width: calc(100% - 2px);
+          height: calc(100% - 2px);
+          border-radius: 50%;
+          background: #4a5568;
+          border: 1px solid rgba(255,255,255,0.2);
+        }
+      </style>
+      <div class="drain"></div>
+    `;
+    
+    adoptDiagramStyles(this.shadowRoot);
+  }
+}
+
+class PoolSkimmer extends PoolFlowComponent {
+  constructor() {
+    super();
+    this.defineConnectionPoint('port', 15, 6, 'output');
+  }
+  
+  connectedCallback() {
+    this.attachShadow({ mode: 'open' });
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host {
+          display: block;
+          width: 30px;
+          height: 12px;
+        }
+        .skimmer {
+          width: calc(100% - 2px);
+          height: calc(100% - 2px);
+          border-radius: 6px;
+          background: #6b7280;
+          border: 1px solid rgba(255,255,255,0.2);
+        }
+      </style>
+      <div class="skimmer"></div>
+    `;
+    
+    adoptDiagramStyles(this.shadowRoot);
+  }
+}
+
+class PoolInlet extends PoolFlowComponent {
+  constructor() {
+    super();
+    this.defineConnectionPoint('port', 10, 10, 'input');
+  }
+  
+  connectedCallback() {
+    this.attachShadow({ mode: 'open' });
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host {
+          display: block;
+          width: 20px;
+          height: 20px;
+        }
+        .inlet {
+          width: calc(100% - 2px);
+          height: calc(100% - 2px);
+          border-radius: 50%;
+          background: #059669;
+          border: 1px solid rgba(255,255,255,0.2);
+        }
+      </style>
+      <div class="inlet"></div>
+    `;
+    
+    adoptDiagramStyles(this.shadowRoot);
   }
 }
 
@@ -1553,27 +1784,27 @@ class PoolFlowModel {
       return flows;
     }
     
-    // Find pump and trace flow paths
+    // Find pump and trace flow paths with intensity
     for (const [pumpId, comp] of this.components) {
       if (comp.type === 'pump' && comp.running) {
-        console.log(`Pump ${pumpId} running - tracing flows`);
+        console.log(`Pump ${pumpId} running - tracing flows with intensity`);
         console.log('All connections:', this.connections);
         console.log('Valve positions:', 
           Array.from(this.components.entries()).filter(([id, c]) => c.type === 'valve').map(([id, c]) => `${id}:${c.position}`)
         );
         
-        // Start from pump output and follow connections
-        this.traceFlowFromComponent(pumpId, 'output', flows, new Set());
+        // Start from pump output and follow connections with full intensity
+        this.traceFlowFromComponent(pumpId, 'output', flows, new Set(), 1.0);
         
-        // Trace backward from pump input to find suction sources
-        this.traceFlowToComponent(pumpId, 'input', flows, new Set());
+        // Trace backward from pump input to find suction sources with full intensity
+        this.traceFlowToComponent(pumpId, 'input', flows, new Set(), 1.0);
       }
     }
     
     return flows;
   }
   
-  traceFlowFromComponent(componentId, portId, flows, visited) {
+  traceFlowFromComponent(componentId, portId, flows, visited, intensity) {
     const key = `${componentId}.${portId}`;
     if (visited.has(key)) return; // Avoid cycles
     visited.add(key);
@@ -1590,15 +1821,16 @@ class PoolFlowModel {
         console.log(`Checking connection ${conn.fromComp}.${conn.fromPort} -> ${conn.toComp}.${conn.toPort}: flowCoeff=${flowCoeff}`);
         
         if (flowCoeff > 0) {
+          const connectionIntensity = intensity * flowCoeff;
           const flowKey = `${conn.fromComp}.${conn.fromPort}-${conn.toComp}.${conn.toPort}`;
-          flows[flowKey] = true;
+          flows[flowKey] = connectionIntensity;
           
-          console.log(`→ ${flowKey}`);
+          console.log(`→ ${flowKey} (intensity: ${connectionIntensity})`);
           
           // Continue tracing from the destination component
           if (toComp.type === 'passthrough') {
-            // For passthrough components, continue from output
-            this.traceFlowFromComponent(conn.toComp, 'output', flows, visited);
+            // For passthrough components, continue from output with same intensity
+            this.traceFlowFromComponent(conn.toComp, 'output', flows, visited, connectionIntensity);
           } else if (toComp.type === 'valve') {
             // For valves, flow entering one port can exit through other ports
             const valvePortEntered = conn.toPort;
@@ -1607,10 +1839,11 @@ class PoolFlowModel {
             const valvePorts = ['left', 'right', 'bottom'];
             for (const exitPort of valvePorts) {
               if (exitPort !== valvePortEntered) {
-                const internalFlowCoeff = this.getValveFlowCoefficient(valvePortEntered, exitPort, toComp.position || 0);
+                const internalFlowCoeff = this.getValveFlowCoefficient(valvePortEntered, exitPort, toComp.position || 0, toComp.reversed || false);
                 if (internalFlowCoeff > 0) {
+                  const exitIntensity = connectionIntensity * internalFlowCoeff;
                   // Continue tracing from this valve port
-                  this.traceFlowFromComponent(conn.toComp, exitPort, flows, visited);
+                  this.traceFlowFromComponent(conn.toComp, exitPort, flows, visited, exitIntensity);
                 }
               }
             }
@@ -1620,7 +1853,7 @@ class PoolFlowModel {
     }
   }
   
-  traceFlowToComponent(componentId, portId, flows, visited) {
+  traceFlowToComponent(componentId, portId, flows, visited, intensity) {
     const key = `${componentId}.${portId}`;
     if (visited.has(key)) return;
     visited.add(key);
@@ -1634,14 +1867,15 @@ class PoolFlowModel {
         const flowCoeff = this.getFlowCoefficient(conn, fromComp, this.components.get(componentId));
         
         if (flowCoeff > 0) {
+          const connectionIntensity = intensity * flowCoeff;
           const flowKey = `${conn.fromComp}.${conn.fromPort}-${conn.toComp}.${conn.toPort}`;
-          flows[flowKey] = true;
+          flows[flowKey] = connectionIntensity;
           
-          console.log(`→ ${flowKey}`);
+          console.log(`→ ${flowKey} (intensity: ${connectionIntensity})`);
           
           // Continue tracing backward
           if (fromComp.type === 'passthrough') {
-            this.traceFlowToComponent(conn.fromComp, 'input', flows, visited);
+            this.traceFlowToComponent(conn.fromComp, 'input', flows, visited, connectionIntensity);
           } else if (fromComp.type === 'valve') {
             // For valves, flow exiting one port could have come from other ports
             const valvePortExited = conn.fromPort;
@@ -1650,10 +1884,11 @@ class PoolFlowModel {
             const valvePorts = ['left', 'right', 'bottom'];
             for (const entryPort of valvePorts) {
               if (entryPort !== valvePortExited) {
-                const internalFlowCoeff = this.getValveFlowCoefficient(entryPort, valvePortExited, fromComp.position || 0);
+                const internalFlowCoeff = this.getValveFlowCoefficient(entryPort, valvePortExited, fromComp.position || 0, fromComp.reversed || false);
                 if (internalFlowCoeff > 0) {
+                  const entryIntensity = connectionIntensity / internalFlowCoeff; // Reverse calculation
                   // Continue tracing to this valve port
-                  this.traceFlowToComponent(conn.fromComp, entryPort, flows, visited);
+                  this.traceFlowToComponent(conn.fromComp, entryPort, flows, visited, entryIntensity);
                 }
               }
             }
@@ -1690,14 +1925,14 @@ class PoolFlowModel {
     if (fromComp.type === 'valve') {
       // Flow OUT of a valve: map external port names to 'external'
       const mappedToPort = (toPort === 'inlet' || toPort === 'input' || toPort === 'output') ? 'external' : toPort;
-      const coeff = this.getValveFlowCoefficient(fromPort, mappedToPort, fromComp.position || 0);
+      const coeff = this.getValveFlowCoefficient(fromPort, mappedToPort, fromComp.position || 0, fromComp.reversed || false);
       console.log(`Valve ${fromId} OUT: ${fromPort}->${mappedToPort} pos=${fromComp.position}: ${coeff}`);
       return coeff;
     }
     
     if (toComp.type === 'valve') {
       // Flow INTO a valve: use valve's port name (toPort)
-      const coeff = this.getValveFlowCoefficient('external', toPort, toComp.position || 0);
+      const coeff = this.getValveFlowCoefficient('external', toPort, toComp.position || 0, toComp.reversed || false);
       console.log(`Valve ${toId} IN: external->${toPort} pos=${toComp.position}: ${coeff}`);
       return coeff;
     }
@@ -1711,13 +1946,18 @@ class PoolFlowModel {
       return 1.0; // Open water bodies have no flow restriction
     }
     
-    return 0.8; // Slight resistance for equipment (filter, heater, etc.)
+    return 1.0; // No flow restriction for equipment (only valves control flow)
   }
   
-  getValveFlowCoefficient(fromPort, toPort, position) {
+  getValveFlowCoefficient(fromPort, toPort, position, reversed = false) {
     // 3-way valve with bottom port always open
     // Position controls proportional split between left/right ports
-    const pos = Math.max(0, Math.min(100, position)) / 100; // Normalize to 0-1
+    let pos = Math.max(0, Math.min(100, position)) / 100; // Normalize to 0-1
+    
+    // If valve is reversed, flip the position for left/right calculations
+    if (reversed) {
+      pos = 1 - pos;
+    }
     
     // Handle external connections into valve ports
     if (fromPort === 'external') {
@@ -1797,6 +2037,9 @@ class PoolFlowModel {
 // Register custom elements
 customElements.define('pool-water-body', PoolWaterBody);
 customElements.define('pool-equipment-filter', PoolFilter);
+customElements.define('pool-equipment-drain', PoolDrain);
+customElements.define('pool-equipment-skimmer', PoolSkimmer);
+customElements.define('pool-equipment-inlet', PoolInlet);
 customElements.define('pool-pipe', PoolPipe);
 
 // ===== Pool Relay Status Panel =====
