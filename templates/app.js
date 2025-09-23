@@ -253,7 +253,7 @@ class PoolDiagram extends HTMLElement{
 	.water-bodies { grid-column: 1; grid-row: span 3; position: relative; height: 100%; }
 	.water-bodies #pool {
 	  position: absolute;
-	  height: 100%;
+	  height: 400px;
 	  width: 100px;
 	}
 	.water-bodies #spa {
@@ -261,12 +261,12 @@ class PoolDiagram extends HTMLElement{
 	  height: 60px;
 	  width: 40px;
 	  left: 100px;
-	  bottom: 10px;
+	  top: 340px;
 	}
         #pool-skimmer {
           position: absolute;
-          bottom: -5px;
-	  left: 0%;
+          top: 405px;
+	  left: 10px;
 	  z-index: 12;
         }
         #pool-inlet {
@@ -277,14 +277,14 @@ class PoolDiagram extends HTMLElement{
         }
         #spa-drain {
           position: absolute;
-          bottom: 20px;
-	  left: 100px;
+          top: 375px;
+	  left: 135px;
 	  z-index: 12;
         }
         #spa-inlet {
           position: absolute;
-          bottom: 20px;
-	  left: 120px;
+          top: 350px;
+	  left: 135px;
 	  z-index: 12;
         }
       </style>
