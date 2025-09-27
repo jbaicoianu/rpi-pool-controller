@@ -202,12 +202,11 @@ function detectGpioHardware() {
 
     // Test if gpiod can actually initialize (this will fail on non-Pi systems)
     try {
-      const chip = new gpiod.Chip(0); // Use chip number instead of path
+      const chip = new gpiod.Chip(0);
       const line = chip.getLine(25);
       line.requestOutputMode();
       line.setValue(0);
       line.release();
-      chip.close();
       console.log('GPIO hardware validation successful');
       return true;
     } catch (initError) {
@@ -265,7 +264,6 @@ if (!simulatorMode && gpioHardwareAvailable) {
       Object.values(gpio).forEach(pinObj => {
         if (pinObj.line) pinObj.line.release();
       });
-      if (gpio._chip) gpio._chip.close();
     } catch {}
   }
 }
@@ -584,11 +582,10 @@ process.on('SIGINT', () => {
         }
       }
       
-      // Release all lines and close chip
+      // Release all lines
       Object.values(gpio).forEach(pinObj => {
         if (pinObj.line) pinObj.line.release();
       });
-      if (gpio._chip) gpio._chip.close();
     } catch (error) {
       console.error('GPIO cleanup error:', error.message);
     }
