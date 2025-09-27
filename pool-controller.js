@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * SPA control REST API + UI using pigpio.
+ * SPA control REST API + UI using libgpiod.
  *   GET /           -> serves templates/index.html
  *   GET /spa/on     -> start spa ON sequence (non-blocking)
  *   GET /spa/off    -> start spa OFF sequence (non-blocking)
@@ -12,7 +12,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const { Gpio } = require('pigpio');
+const gpiod = require('node-libgpiod');
 
 // ---- Configuration Classes ----
 class EquipmentState {
@@ -194,19 +194,20 @@ let gpioHardwareAvailable = false;
 // Function to detect GPIO hardware availability
 function detectGpioHardware() {
   try {
-    // Verify pigpio module can be loaded
-    const { Gpio } = require('pigpio');
-
-    // Check for GPIO device accessibility (basic file system check)
-    if (!fs.existsSync('/dev/gpiomem') && !fs.existsSync('/dev/mem')) {
-      console.log('GPIO device files not accessible');
+    // Check for GPIO device accessibility (gpiod uses /dev/gpiochip*)
+    if (!fs.existsSync('/dev/gpiochip0')) {
+      console.log('GPIO device not accessible - /dev/gpiochip0 not found');
       return false;
     }
 
-    // Test if pigpio can actually initialize (this will fail on non-Pi systems)
+    // Test if gpiod can actually initialize (this will fail on non-Pi systems)
     try {
-      const testPin = new Gpio(25, { mode: Gpio.OUTPUT });
-      testPin.digitalWrite(0); // Test basic operation
+      const chip = gpiod.Chip.open('/dev/gpiochip0');
+      const line = chip.getLine(25);
+      line.requestOutputMode();
+      line.setValue(0);
+      line.release();
+      chip.close();
       console.log('GPIO hardware validation successful');
       return true;
     } catch (initError) {
@@ -233,11 +234,26 @@ if (!simulatorMode) {
 if (!simulatorMode && gpioHardwareAvailable) {
   console.log('🔌 Initializing GPIO hardware...');
   try {
+    // Open GPIO chip
+    const chip = gpiod.Chip.open('/dev/gpiochip0');
+    
     for (const pin of Object.values(PINS)) {
-      gpio[pin] = new Gpio(pin, { mode: Gpio.OUTPUT });
-      gpio[pin].digitalWrite(0);
+      // Get line and configure as output
+      const line = chip.getLine(pin);
+      line.requestOutputMode();
+      line.setValue(0);
+      
+      // Create wrapper object for compatibility
+      gpio[pin] = {
+        line: line,
+        digitalWrite: (value) => line.setValue(value)
+      };
+      
       console.log(`GPIO ${pin} initialized -> LOW`);
     }
+    
+    // Store chip reference for cleanup
+    gpio._chip = chip;
     console.log('✅ GPIO hardware initialized successfully');
   } catch (error) {
     console.error('❌ GPIO initialization failed:', error.message);
@@ -245,9 +261,12 @@ if (!simulatorMode && gpioHardwareAvailable) {
     simulatorMode = true;
 
     // Clean up any partially initialized GPIO
-    Object.values(gpio).forEach(pin => {
-      try { pin.constructor.name === 'Gpio' && pin.terminate?.(); } catch {}
-    });
+    try {
+      Object.values(gpio).forEach(pinObj => {
+        if (pinObj.line) pinObj.line.release();
+      });
+      if (gpio._chip) gpio._chip.close();
+    } catch {}
   }
 }
 
@@ -556,8 +575,23 @@ app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'templates', 'inde
 // ---- Cleanup on exit ----
 process.on('SIGINT', () => {
   console.log('Cleaning up GPIO (setting all LOW)…');
-  for (const pin of Object.values(PINS)) {
-    try { gpio[pin].digitalWrite(0); } catch {}
+  if (!simulatorMode && gpioHardwareAvailable) {
+    try {
+      // Set all pins LOW before cleanup
+      for (const pin of Object.values(PINS)) {
+        if (gpio[pin] && gpio[pin].line) {
+          gpio[pin].line.setValue(0);
+        }
+      }
+      
+      // Release all lines and close chip
+      Object.values(gpio).forEach(pinObj => {
+        if (pinObj.line) pinObj.line.release();
+      });
+      if (gpio._chip) gpio._chip.close();
+    } catch (error) {
+      console.error('GPIO cleanup error:', error.message);
+    }
   }
   process.exit();
 });
