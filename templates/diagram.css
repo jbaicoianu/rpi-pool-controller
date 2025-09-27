@@ -176,6 +176,5 @@ pool-equipment-valve#return {
 }
 pool-equipment-valve#suction {
   position: relative;
-  top: 20px;
-  left: 20px;
+  top: 0px;
 }

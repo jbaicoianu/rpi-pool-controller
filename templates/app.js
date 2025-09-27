@@ -237,55 +237,55 @@ class PoolDiagram extends HTMLElement{
           border: 2px solid rgba(255,255,255,0.1);
           border-radius: 12px;
           background: rgba(0,0,0,0.1);
-	  align-items: center;
+          align-items: center;
         }
         
         /* Grid positioning */
-	/*
+        /*
         #pool { grid-column: 1; grid-row: 1; justify-self: center; align-self: center; }
         #spa { grid-column: 1; grid-row: 3; justify-self: center; align-self: center; }
-	*/
+        */
         #suction { grid-column: 2; grid-row: 3; }
         #return { grid-column: 2; grid-row: 1; }
         #pump { grid-column: 3; grid-row: 3; justify-self: center; }
         #filter { grid-column: 3; grid-row: 2; justify-self: center; }
         #heater { grid-column: 3; grid-row: 1; justify-self: center; }
-	.water-bodies { grid-column: 1; grid-row: span 3; position: relative; height: 100%; }
-	.water-bodies #pool {
-	  position: absolute;
-	  height: 400px;
-	  width: 100px;
-	}
-	.water-bodies #spa {
-	  position: absolute;
-	  height: 60px;
-	  width: 40px;
-	  left: 100px;
-	  top: 340px;
-	}
+        .water-bodies { grid-column: 1; grid-row: span 3; position: relative; height: 100%; }
+        .water-bodies #pool {
+          position: absolute;
+          height: 355px;
+          width: 100px;
+        }
+        .water-bodies #spa {
+          position: absolute;
+          height: 60px;
+          width: 40px;
+          left: 100px;
+          top: 295px;
+        }
         #pool-skimmer {
           position: absolute;
-          top: 405px;
-	  left: 10px;
-	  z-index: 12;
+          top: 360px;
+          left: 10px;
+          z-index: 12;
         }
         #pool-inlet {
           position: absolute;
           top: 10px;
-	  left: 90px;
-	  z-index: 12;
+          left: 90px;
+          z-index: 12;
         }
         #spa-drain {
           position: absolute;
-          top: 375px;
-	  left: 135px;
-	  z-index: 12;
+          top: 330px;
+          left: 135px;
+          z-index: 12;
         }
         #spa-inlet {
           position: absolute;
-          top: 350px;
-	  left: 135px;
-	  z-index: 12;
+          top: 305px;
+          left: 135px;
+          z-index: 12;
         }
       </style>
       
@@ -293,9 +293,9 @@ class PoolDiagram extends HTMLElement{
         <!-- Water bodies -->
         <div class="water-bodies">
           <pool-water-body id="pool" type="pool" temperature="75">
-	  </pool-water-body>
+          </pool-water-body>
           <pool-water-body id="spa" type="spa" temperature="104">
-	  </pool-water-body>
+          </pool-water-body>
             <pool-equipment-drain id="spa-drain"></pool-equipment-drain>
             <pool-equipment-inlet id="spa-inlet"></pool-equipment-inlet>
             <pool-equipment-skimmer id="pool-skimmer"></pool-equipment-skimmer>
@@ -1105,21 +1105,23 @@ class PoolValve extends PoolFlowComponent{
     // Determine target class based on intensity
     let targetClass = '';
     if (flowIntensity > 0) {
+      if (!pipe.classList.contains('flowing')) pipe.classList.add('flowing');
       if (flowIntensity >= 0.995) {  // Use tolerance to prevent flickering between flow and flow_100pct
-        targetClass = 'flow'; // Full flow with glow effect
+        targetClass = 'flow_100pct'; // Full flow with glow effect
       } else {
         const percentage = Math.round(flowIntensity * 10) * 10; // Round to nearest 10%
         const clampedPercentage = Math.max(10, Math.min(100, percentage)); // Clamp between 10-100%
         targetClass = `flow_${clampedPercentage}pct`;
       }
+    } else {
+      if (pipe.classList.contains('flowing')) pipe.classList.remove('flowing');
     }
     
     // Only update classes if they need to change
     const currentClass = pipe.className.split(' ').find(cls => cls === 'flow' || cls.startsWith('flow_'));
-    if (currentClass !== targetClass) {
+    if (targetClass && currentClass !== targetClass) {
       // Clear all flow classes only when necessary
-      pipe.classList.remove('flow', 'flow_10pct', 'flow_20pct', 'flow_30pct', 'flow_40pct', 
-                           'flow_50pct', 'flow_60pct', 'flow_70pct', 'flow_80pct', 'flow_90pct', 'flow_100pct');
+      pipe.classList.remove(currentClass);
       
       // Apply new class if needed
       if (targetClass) {
@@ -1232,7 +1234,6 @@ class PoolPump extends PoolFlowComponent{
     this.speed = speed;
   }
   handleClick(ev) {
-	  console.log('eeee', this.speed);
     if (this.speed == 'off') {
       this.setState('on', 'low');
     } else if (this.speed == 'low') {
@@ -1285,7 +1286,7 @@ class PoolWaterBody extends PoolFlowComponent {
           box-shadow: inset 0 2px 8px rgba(0,0,0,0.3), 0 4px 12px rgba(37,99,235,0.2);
           position: relative;
           overflow: hidden;
-	  z-index: 10;
+          z-index: 10;
         }
         .water-body.spa {
           background: linear-gradient(135deg, #dc2626, #b91c1c);
@@ -1641,17 +1642,29 @@ class PoolPipe extends HTMLElement {
     const pipePath = this.shadowRoot.querySelector('.pipe-path');
     
     // Clear all flow classes
+    /*
     pipePath.classList.remove('flowing', 'flow_10pct', 'flow_20pct', 'flow_30pct', 'flow_40pct',
                              'flow_50pct', 'flow_60pct', 'flow_70pct', 'flow_80pct', 'flow_90pct', 'flow_100pct');
+    */
     
     // Apply appropriate flow class based on intensity
     if (this.flowIntensity > 0) {
-      if (this.flowIntensity >= 1.0) {
-        pipePath.classList.add('flowing'); // Full flow
-      } else {
-        const percentage = Math.round(this.flowIntensity * 10) * 10; // Round to nearest 10%
-        const clampedPercentage = Math.max(10, Math.min(100, percentage)); // Clamp between 10-100%
-        pipePath.classList.add(`flow_${clampedPercentage}pct`);
+      if (!pipePath.classList.contains('flowing')) {
+        pipePath.classList.add('flowing');
+      }
+      const percentage = Math.round(this.flowIntensity * 10) * 10; // Round to nearest 10%
+      const clampedPercentage = Math.max(10, Math.min(100, percentage)); // Clamp between 10-100%
+      const targetClass = `flow_${clampedPercentage}pct`;
+      const currentClass = pipePath.className.baseVal.split(' ').find(cls => cls.startsWith('flow_'));
+      if (targetClass != currentClass) {
+        pipePath.classList.remove(currentClass);
+        pipePath.classList.add(targetClass);
+      }
+    } else if (pipePath.classList.contains('flowing')) {
+      pipePath.classList.remove('flowing'); // Full flow
+      const currentClass = pipePath.className.baseVal.split(' ').find(cls => cls.startsWith('flow_'));
+      if (currentClass) {
+        pipePath.classList.remove(currentClass);
       }
     }
   }
@@ -1787,11 +1800,13 @@ class PoolFlowModel {
     // Find pump and trace flow paths with intensity
     for (const [pumpId, comp] of this.components) {
       if (comp.type === 'pump' && comp.running) {
+        /*
         console.log(`Pump ${pumpId} running - tracing flows with intensity`);
         console.log('All connections:', this.connections);
         console.log('Valve positions:', 
           Array.from(this.components.entries()).filter(([id, c]) => c.type === 'valve').map(([id, c]) => `${id}:${c.position}`)
         );
+        */
         
         // Start from pump output and follow connections with full intensity
         this.traceFlowFromComponent(pumpId, 'output', flows, new Set(), 1.0);
@@ -1818,14 +1833,14 @@ class PoolFlowModel {
         // Check if flow can pass through this connection
         const flowCoeff = this.getFlowCoefficient(conn, this.components.get(componentId), toComp);
         
-        console.log(`Checking connection ${conn.fromComp}.${conn.fromPort} -> ${conn.toComp}.${conn.toPort}: flowCoeff=${flowCoeff}`);
+        //console.log(`Checking connection ${conn.fromComp}.${conn.fromPort} -> ${conn.toComp}.${conn.toPort}: flowCoeff=${flowCoeff}`);
         
         if (flowCoeff > 0) {
           const connectionIntensity = intensity * flowCoeff;
           const flowKey = `${conn.fromComp}.${conn.fromPort}-${conn.toComp}.${conn.toPort}`;
           flows[flowKey] = connectionIntensity;
           
-          console.log(`→ ${flowKey} (intensity: ${connectionIntensity})`);
+          //console.log(`→ ${flowKey} (intensity: ${connectionIntensity})`);
           
           // Continue tracing from the destination component
           if (toComp.type === 'passthrough') {
@@ -1871,7 +1886,7 @@ class PoolFlowModel {
           const flowKey = `${conn.fromComp}.${conn.fromPort}-${conn.toComp}.${conn.toPort}`;
           flows[flowKey] = connectionIntensity;
           
-          console.log(`→ ${flowKey} (intensity: ${connectionIntensity})`);
+          //console.log(`→ ${flowKey} (intensity: ${connectionIntensity})`);
           
           // Continue tracing backward
           if (fromComp.type === 'passthrough') {
@@ -1926,14 +1941,14 @@ class PoolFlowModel {
       // Flow OUT of a valve: map external port names to 'external'
       const mappedToPort = (toPort === 'inlet' || toPort === 'input' || toPort === 'output') ? 'external' : toPort;
       const coeff = this.getValveFlowCoefficient(fromPort, mappedToPort, fromComp.position || 0, fromComp.reversed || false);
-      console.log(`Valve ${fromId} OUT: ${fromPort}->${mappedToPort} pos=${fromComp.position}: ${coeff}`);
+      //console.log(`Valve ${fromId} OUT: ${fromPort}->${mappedToPort} pos=${fromComp.position}: ${coeff}`);
       return coeff;
     }
     
     if (toComp.type === 'valve') {
       // Flow INTO a valve: use valve's port name (toPort)
       const coeff = this.getValveFlowCoefficient('external', toPort, toComp.position || 0, toComp.reversed || false);
-      console.log(`Valve ${toId} IN: external->${toPort} pos=${toComp.position}: ${coeff}`);
+      //console.log(`Valve ${toId} IN: external->${toPort} pos=${toComp.position}: ${coeff}`);
       return coeff;
     }
     
