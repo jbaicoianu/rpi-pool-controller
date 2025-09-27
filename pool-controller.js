@@ -202,7 +202,7 @@ function detectGpioHardware() {
 
     // Test if gpiod can actually initialize (this will fail on non-Pi systems)
     try {
-      const chip = gpiod.Chip.open('/dev/gpiochip0');
+      const chip = new gpiod.Chip(0); // Use chip number instead of path
       const line = chip.getLine(25);
       line.requestOutputMode();
       line.setValue(0);
@@ -235,7 +235,7 @@ if (!simulatorMode && gpioHardwareAvailable) {
   console.log('🔌 Initializing GPIO hardware...');
   try {
     // Open GPIO chip
-    const chip = gpiod.Chip.open('/dev/gpiochip0');
+    const chip = new gpiod.Chip(0);
     
     for (const pin of Object.values(PINS)) {
       // Get line and configure as output
